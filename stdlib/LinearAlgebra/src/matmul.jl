@@ -41,10 +41,6 @@ function *(transx::Transpose{<:Any,<:StridedVector{T}}, y::StridedVector{T}) whe
 end
 
 # Matrix-vector multiplication
-function (*)(A::StridedMatrix{T}, x::StridedVector{S}) where {T<:BlasFloat,S}
-    TS = promote_op(matprod, T, S)
-    mul!(similar(x, TS, size(A,1)), A, convert(AbstractVector{TS}, x))
-end
 function (*)(A::AbstractMatrix{T}, x::AbstractVector{S}) where {T,S}
     TS = promote_op(matprod, T, S)
     mul!(similar(x,TS,axes(A,1)),A,x)
