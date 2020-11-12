@@ -510,6 +510,37 @@ function _kwdef!(blk, params_args, call_args)
 end
 
 """
+    @invoke f(arg::T, ...; kwargs...)
+
+Provides a convenient way to call [`invoke`](@ref);
+`@invoke f(arg1::T1, arg2::T2; kwargs...)` will be expanded into `invoke(f, Tuple{T1,T2}, arg1, arg2; kwargs...)`.
+When an argument's type annotation is omitted, it's specified as `Any` argument, e.g.
+`@invoke f(arg1::T, arg2)` will be expanded into `invoke(f, Tuple{T,Any}, arg1, arg2)`.
+"""
+macro invoke(ex)
+    f = first(ex.args)
+    argtypes = []
+    args = []
+    kwargs = []
+    for x in ex.args[2:end]
+        if is_expr(x, :parameters)
+            append!(kwargs, x.args)
+        elseif is_expr(x, :kw)
+            push!(kwargs, x)
+        else
+            arg, argtype = is_expr(x, :(::)) ? (x.args...,) : (x, GlobalRef(Core, :Any))
+            push!(args, arg)
+            push!(argtypes, argtype)
+        end
+    end
+    return if isempty(kwargs)
+        :($(GlobalRef(Core, :invoke))($(f), Tuple{$(argtypes...)}, $(args...))) # might not be necessary
+    else
+        :($(GlobalRef(Core, :invoke))($(f), Tuple{$(argtypes...)}, $(args...); $(kwargs...)))
+    end |> esc
+end
+
+"""
     @invokelatest f(args...; kwargs...)
 
 Provides a convenient way to call [`Base.invokelatest`](@ref).
