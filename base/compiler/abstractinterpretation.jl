@@ -31,7 +31,7 @@ end
 function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f), argtypes::Vector{Any}, @nospecialize(atype), sv::InferenceState,
                                   max_methods::Int = InferenceParams(interp).MAX_METHODS)
     if sv.params.unoptimize_throw_blocks && sv.currpc in sv.throw_blocks
-        return CallMeta(Any, false)
+        return CallMeta(Any, nothing)
     end
     valid_worlds = WorldRange()
     atype_params = unwrap_unionall(atype).parameters
@@ -46,13 +46,13 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
             mt = ccall(:jl_method_table_for, Any, (Any,), sig_n)
             if mt === nothing
                 add_remark!(interp, sv, "Could not identify method table for call")
-                return CallMeta(Any, false)
+                return CallMeta(Any, nothing)
             end
             mt = mt::Core.MethodTable
             matches = findall(sig_n, method_table(interp); limit=max_methods)
             if matches === missing
                 add_remark!(interp, sv, "For one of the union split cases, too many methods matched")
-                return CallMeta(Any, false)
+                return CallMeta(Any, nothing)
             end
             push!(infos, MethodMatchInfo(matches))
             append!(applicable, matches)
@@ -76,7 +76,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
         mt = ccall(:jl_method_table_for, Any, (Any,), atype)
         if mt === nothing
             add_remark!(interp, sv, "Could not identify method table for call")
-            return CallMeta(Any, false)
+            return CallMeta(Any, nothing)
         end
         mt = mt::Core.MethodTable
         matches = findall(atype, method_table(interp, sv); limit=max_methods)
@@ -84,7 +84,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
             # this means too many methods matched
             # (assume this will always be true, so we don't compute / update valid age in this case)
             add_remark!(interp, sv, "Too many methods matched")
-            return CallMeta(Any, false)
+            return CallMeta(Any, nothing)
         end
         push!(mts, mt)
         push!(fullmatch, _any(match->(match::MethodMatch).fully_covers, matches))
@@ -661,7 +661,7 @@ function abstract_apply(interp::AbstractInterpreter, @nospecialize(itft), @nospe
             add_remark!(interp, sv, "Core._apply called on a function of a non-concrete type")
             # bail now, since it seems unlikely that abstract_call will be able to do any better after splitting
             # this also ensures we don't call abstract_call_gf_by_type below on an IntrinsicFunction or Builtin
-            return CallMeta(Any, false)
+            return CallMeta(Any, nothing)
         end
     end
     res = Union{}
@@ -925,12 +925,12 @@ function abstract_call_known(interp::AbstractInterpreter, @nospecialize(f),
     if isa(f, Builtin)
         if f === _apply
             ft = argtype_by_index(argtypes, 2)
-            ft === Bottom && return CallMeta(Bottom, false)
+            ft === Bottom && return CallMeta(Bottom, nothing)
             return abstract_apply(interp, nothing, ft, argtype_tail(argtypes, 3), sv, max_methods)
         elseif f === _apply_iterate
             itft = argtype_by_index(argtypes, 2)
             ft = argtype_by_index(argtypes, 3)
-            (itft === Bottom || ft === Bottom) && return CallMeta(Bottom, false)
+            (itft === Bottom || ft === Bottom) && return CallMeta(Bottom, nothing)
             return abstract_apply(interp, itft, ft, argtype_tail(argtypes, 4), sv, max_methods)
         end
         return CallMeta(abstract_call_builtin(interp, f, fargs, argtypes, sv, max_methods), nothing)
@@ -941,11 +941,11 @@ function abstract_call_known(interp::AbstractInterpreter, @nospecialize(f),
                 return CallMeta(Const(ft.name.mt.kwsorter), MethodResultPure())
             end
         end
-        return CallMeta(Any, false)
+        return CallMeta(Any, nothing)
     elseif f === TypeVar
         # Manually look through the definition of TypeVar to
         # make sure to be able to get `PartialTypeVar`s out.
-        (la < 2 || la > 4) && return CallMeta(Union{}, false)
+        (la < 2 || la > 4) && return CallMeta(Union{}, nothing)
         n = argtypes[2]
         ub_var = Const(Any)
         lb_var = Const(Union{})
@@ -957,9 +957,9 @@ function abstract_call_known(interp::AbstractInterpreter, @nospecialize(f),
         end
         return CallMeta(typevar_tfunc(n, lb_var, ub_var), nothing)
     elseif f === UnionAll
-        return CallMeta(abstract_call_unionall(argtypes), false)
+        return CallMeta(abstract_call_unionall(argtypes), nothing)
     elseif f === Tuple && la == 2 && !isconcretetype(widenconst(argtypes[2]))
-        return CallMeta(Tuple, false)
+        return CallMeta(Tuple, nothing)
     elseif is_return_type(f)
         rt_rt = return_type_tfunc(interp, argtypes, sv)
         if rt_rt !== nothing
@@ -991,7 +991,7 @@ function abstract_call_known(interp::AbstractInterpreter, @nospecialize(f),
             fargs = nothing
         end
         argtypes = Any[typeof(<:), argtypes[3], argtypes[2]]
-        return CallMeta(abstract_call_known(interp, <:, fargs, argtypes, sv).rt, false)
+        return CallMeta(abstract_call_known(interp, <:, fargs, argtypes, sv).rt, nothing)
     elseif la == 2 && isa(argtypes[2], Const) && isa(argtypes[2].val, SimpleVector) && istopfunction(f, :length)
         # mark length(::SimpleVector) as @pure
         return CallMeta(Const(length(argtypes[2].val)), MethodResultPure())
@@ -1031,7 +1031,7 @@ function abstract_call(interp::AbstractInterpreter, fargs::Union{Nothing,Vector{
         # and the ft is not a Builtin or IntrinsicFunction
         if typeintersect(widenconst(ft), Builtin) != Union{}
             add_remark!(interp, sv, "Could not identify method table for call")
-            return CallMeta(Any, false)
+            return CallMeta(Any, nothing)
         end
         return abstract_call_gf_by_type(interp, nothing, argtypes, argtypes_to_type(argtypes), sv, max_methods)
     end
