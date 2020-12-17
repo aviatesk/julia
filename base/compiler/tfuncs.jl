@@ -1649,6 +1649,9 @@ function return_type_tfunc(interp::AbstractInterpreter, argtypes::Vector{Any}, s
                         return Const(Union{})
                     end
                     rt = abstract_call(interp, nothing, argtypes_vec, sv, -1).rt
+                    if isa(rt, InterConditional)
+                        rt = widenconditional(rt)
+                    end
                     if isa(rt, Const)
                         # output was computed to be constant
                         return Const(typeof(rt.val))

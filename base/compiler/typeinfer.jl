@@ -286,20 +286,24 @@ end
 function CodeInstance(result::InferenceResult, @nospecialize(inferred_result::Any),
                       valid_worlds::WorldRange)
     local const_flags::Int32
+    res = result.result
     if inferred_result isa Const
         # use constant calling convention
         rettype_const = (result.src::Const).val
         const_flags = 0x3
         inferred_result = nothing
     else
-        if isa(result.result, Const)
-            rettype_const = (result.result::Const).val
+        if isa(res, Const)
+            rettype_const = res.val
             const_flags = 0x2
-        elseif isconstType(result.result)
-            rettype_const = result.result.parameters[1]
+        elseif isconstType(res)
+            rettype_const = res.parameters[1]
             const_flags = 0x2
-        elseif isa(result.result, PartialStruct)
-            rettype_const = (result.result::PartialStruct).fields
+        elseif isa(res, PartialStruct)
+            rettype_const = res.fields
+            const_flags = 0x2
+        elseif isa(res, InterConditional)
+            rettype_const = res
             const_flags = 0x2
         else
             rettype_const = nothing
@@ -307,7 +311,7 @@ function CodeInstance(result::InferenceResult, @nospecialize(inferred_result::An
         end
     end
     return CodeInstance(result.linfo,
-        widenconst(result.result), rettype_const, inferred_result,
+        widenconst(res), rettype_const, inferred_result,
         const_flags, first(valid_worlds), last(valid_worlds))
 end
 
@@ -412,8 +416,20 @@ function finish(me::InferenceState, interp::AbstractInterpreter)
         me.result.src = OptimizationState(me, OptimizationParams(interp), interp)
     end
     me.result.valid_worlds = me.valid_worlds
-    me.result.result = me.bestguess
+    me.result.result = me.bestguess =
+        bestguess_to_interprocedural(me.bestguess, length(me.result.argtypes))
     nothing
+end
+
+bestguess_to_interprocedural(@nospecialize(bestguess), _) = bestguess
+function bestguess_to_interprocedural(bestguess::Conditional, nargs::Int)
+    # keep `Conditional` return type only when it constrains any of call argument
+    i = slot_id(bestguess.var)
+    if 1 < i ≤ nargs
+        return InterConditional(i, bestguess.vtype, bestguess.elsetype)
+    else
+        return widenconditional(bestguess)
+    end
 end
 
 function finish(src::CodeInfo, interp::AbstractInterpreter)
@@ -724,14 +740,18 @@ function typeinf_edge(interp::AbstractInterpreter, method::Method, @nospecialize
     code = get(code_cache(interp), mi, nothing)
     if code isa CodeInstance # return existing rettype if the code is already inferred
         update_valid_age!(caller, WorldRange(min_world(code), max_world(code)))
+        rettype = code.rettype
         if isdefined(code, :rettype_const)
-            if isa(code.rettype_const, Vector{Any}) && !(Vector{Any} <: code.rettype)
-                return PartialStruct(code.rettype, code.rettype_const), mi
+            rettype_const = code.rettype_const
+            if isa(rettype_const, InterConditional)
+                return rettype_const, mi
+            elseif isa(rettype_const, Vector{Any}) && !(Vector{Any} <: rettype)
+                return PartialStruct(rettype, rettype_const), mi
             else
-                return Const(code.rettype_const), mi
+                return Const(rettype_const), mi
             end
         else
-            return code.rettype, mi
+            return rettype, mi
         end
     end
     if ccall(:jl_get_module_infer, Cint, (Any,), method.module) == 0
@@ -802,7 +822,8 @@ function typeinf_ext(interp::AbstractInterpreter, mi::MethodInstance)
             if invoke_api(code) == 2
                 i == 2 && ccall(:jl_typeinf_end, Cvoid, ())
                 tree = ccall(:jl_new_code_info_uninit, Ref{CodeInfo}, ())
-                tree.code = Any[ ReturnNode(quoted(code.rettype_const)) ]
+                rettype_const = code.rettype_const
+                tree.code = Any[ ReturnNode(quoted(rettype_const)) ]
                 nargs = Int(method.nargs)
                 tree.slotnames = ccall(:jl_uncompress_argnames, Vector{Symbol}, (Any,), method.slot_syms)
                 tree.slotflags = fill(0x00, nargs)
@@ -814,7 +835,7 @@ function typeinf_ext(interp::AbstractInterpreter, mi::MethodInstance)
                 tree.pure = true
                 tree.inlineable = true
                 tree.parent = mi
-                tree.rettype = Core.Typeof(code.rettype_const)
+                tree.rettype = Core.Typeof(widenconditional(rettype_const))
                 tree.min_world = code.min_world
                 tree.max_world = code.max_world
                 return tree

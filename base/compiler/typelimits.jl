@@ -327,6 +327,35 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
         end
         return Bool
     end
+    # type-lattice for InterConditional wrapper, InterConditional won't be merged with Conditional
+    if isa(typea, InterConditional) && isa(typeb, Const)
+        if typeb.val === true
+            typeb = InterConditional(typea.slot, Any, Union{})
+        elseif typeb.val === false
+            typeb = InterConditional(typea.slot, Union{}, Any)
+        end
+    end
+    if isa(typeb, InterConditional) && isa(typea, Const)
+        if typea.val === true
+            typea = InterConditional(typeb.slot, Any, Union{})
+        elseif typea.val === false
+            typea = InterConditional(typeb.slot, Union{}, Any)
+        end
+    end
+    if isa(typea, InterConditional) && isa(typeb, InterConditional)
+        if typea.slot === typeb.slot
+            vtype = tmerge(typea.vtype, typeb.vtype)
+            elsetype = tmerge(typea.elsetype, typeb.elsetype)
+            if vtype != elsetype
+                return InterConditional(typea.slot, vtype, elsetype)
+            end
+        end
+        val = maybe_extract_const_bool(typea)
+        if val isa Bool && val === maybe_extract_const_bool(typeb)
+            return Const(val)
+        end
+        return Bool
+    end
     if (isa(typea, PartialStruct) || isa(typea, Const)) &&
        (isa(typeb, PartialStruct) || isa(typeb, Const)) &&
         widenconst(typea) === widenconst(typeb)

@@ -1719,6 +1719,41 @@ for expr25261 in opt25261[i:end]
 end
 @test foundslot
 
+@testset "interprocedural conditional constraint propagation" begin
+    isaint(a) = isa(a, Int)
+    @test Base.return_types((Any,)) do a
+        isaint(a) && return a # a::Int
+        return 0
+    end == [Int]
+    eqnothing(a) = a === nothing
+    @test Base.return_types((Union{Nothing,Int},)) do a
+        eqnothing(a) && return 0
+        return a # a::Int
+    end == [Int]
+
+    # tests with base functions
+    @test Base.return_types((Any,)) do a
+        Base.Fix2(isa, Int)(a) && return sin(a) # a::Float64
+        return 0.0
+    end == [Float64]
+    @test Base.return_types((Union{Nothing,Int},)) do a
+        isnothing(a) && return 0
+        return a # a::Int
+    end == [Int]
+
+    # FIXME: we can't propagate conditional constraints interprocedurally when there're
+    # multiple possible conditions within the callee
+    ispositive(a) = isa(a, Int) && a > 0
+    @test_broken Base.return_types((Any,)) do a
+        ispositive(a) && return a # a::Int, ideally
+        return 0
+    end == [Int]
+    @test_broken Base.return_types((Any,)) do x
+        Meta.isexpr(x, :call) && return x # x::Expr, ideally
+        return nothing
+    end == [Nothing,Expr]
+end
+
 function f25579(g)
     h = g[]
     t = (h === nothing)

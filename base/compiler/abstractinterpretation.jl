@@ -24,8 +24,8 @@ function is_improvable(@nospecialize(rtype))
         # already at Bottom
         return rtype !== Union{}
     end
-    # Could be improved to `Const` or a more precise PartialStruct
-    return isa(rtype, PartialStruct)
+    # Could be improved to `Const` or a more precise wrapper
+    return isa(rtype, PartialStruct) || isa(rtype, InterConditional)
 end
 
 function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f), argtypes::Vector{Any}, @nospecialize(atype), sv::InferenceState,
@@ -1144,7 +1144,10 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
         end
         callinfo = abstract_call(interp, ea, argtypes, sv)
         sv.stmt_info[sv.currpc] = callinfo.info
-        t = callinfo.rt
+        rt = callinfo.rt
+        t = isa(rt, InterConditional) ?
+            transform_from_interconditional(rt, ea) :
+            rt
     elseif e.head === :new
         t = instanceof_tfunc(abstract_eval_value(interp, e.args[1], vtypes, sv))[1]
         if isconcretetype(t) && !t.mutable
@@ -1255,6 +1258,19 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
     return t
 end
 
+# try to convert interprocedural-conditional constraint from callee into constraints for
+# the current frame
+function transform_from_interconditional(rt::InterConditional, ea::Vector{Any})
+    i = rt.slot
+    if checkbounds(Bool, ea, i)
+        e = @inbounds ea[i]
+        if isa(e, Slot)
+            return Conditional(e, rt.vtype, rt.elsetype)
+        end
+    end
+    return widenconditional(rt)
+end
+
 function abstract_eval_global(M::Module, s::Symbol)
     if isdefined(M,s) && isconst(M,s)
         return Const(getfield(M,s))
@@ -1338,10 +1354,15 @@ function typeinf_local(interp::AbstractInterpreter, frame::InferenceState)
                 end
             elseif isa(stmt, ReturnNode)
                 pc´ = n + 1
-                rt = widenconditional(abstract_eval_value(interp, stmt.val, s[pc], frame))
-                if !isa(rt, Const) && !isa(rt, Type) && !isa(rt, PartialStruct)
+                rt = abstract_eval_value(interp, stmt.val, s[pc], frame)
+                if !isa(rt, Const) &&
+                   !isa(rt, Type) &&
+                   !isa(rt, PartialStruct) &&
+                   !isa(rt, Conditional)
                     # only propagate information we know we can store
                     # and is valid inter-procedurally
+                    # some of them will further be transformed by `bestguess_to_interprocedural`
+                    # in `finish(::InferenceState, ::AbstractInterpreter)`
                     rt = widenconst(rt)
                 end
                 if tchanged(rt, frame.bestguess)
