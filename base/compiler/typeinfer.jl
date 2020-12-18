@@ -421,7 +421,7 @@ function finish(me::InferenceState, interp::AbstractInterpreter)
     nothing
 end
 
-bestguess_to_interprocedural(@nospecialize(bestguess), _) = bestguess
+bestguess_to_interprocedural(@nospecialize(bestguess), _::Int) = bestguess
 function bestguess_to_interprocedural(bestguess::Conditional, nargs::Int)
     # keep `Conditional` return type only when it constrains any of call argument
     i = slot_id(bestguess.var)

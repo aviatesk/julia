@@ -1033,9 +1033,35 @@ function abstract_call(interp::AbstractInterpreter, fargs::Union{Nothing,Vector{
             add_remark!(interp, sv, "Could not identify method table for call")
             return CallMeta(Any, false)
         end
-        return abstract_call_gf_by_type(interp, nothing, argtypes, argtypes_to_type(argtypes), sv, max_methods)
+        callinfo = abstract_call_gf_by_type(interp, nothing, argtypes, argtypes_to_type(argtypes), sv, max_methods)
+        return callinfo_from_interprocedural(callinfo, fargs)
     end
-    return abstract_call_known(interp, f, fargs, argtypes, sv, max_methods)
+    callinfo = abstract_call_known(interp, f, fargs, argtypes, sv, max_methods)
+    return callinfo_from_interprocedural(callinfo, fargs)
+end
+
+function callinfo_from_interprocedural(callinfo::CallMeta, ea::Union{Nothing,Vector{Any}})
+    if ea === nothing
+        return callinfo
+    end
+
+    rt = callinfo.rt
+    if isa(rt, InterConditional)
+        # try to convert interprocedural conditional constraint from callee into the constraint
+        # on slots of the current frame
+        i = rt.slot
+        if checkbounds(Bool, ea, i)
+            # `InterConditional` is supposed to be passed here only after "valid" `abstract_call`,
+            # and thus `i` should always be in bounds of `ea`, but just for safety
+            e = @inbounds ea[i]
+            if isa(e, Slot)
+                return CallMeta(Conditional(e, rt.vtype, rt.elsetype), callinfo.info)
+            end
+        end
+        return CallMeta(widenconditional(rt), callinfo.info)
+    else
+        return callinfo
+    end
 end
 
 function sp_type_rewrap(@nospecialize(T), linfo::MethodInstance, isreturn::Bool)
@@ -1144,10 +1170,7 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
         end
         callinfo = abstract_call(interp, ea, argtypes, sv)
         sv.stmt_info[sv.currpc] = callinfo.info
-        rt = callinfo.rt
-        t = isa(rt, InterConditional) ?
-            transform_from_interconditional(rt, ea) :
-            rt
+        t = callinfo.rt
     elseif e.head === :new
         t = instanceof_tfunc(abstract_eval_value(interp, e.args[1], vtypes, sv))[1]
         if isconcretetype(t) && !t.mutable
@@ -1256,19 +1279,6 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
         t = Const(t.instance)
     end
     return t
-end
-
-# try to convert interprocedural-conditional constraint from callee into constraints for
-# the current frame
-function transform_from_interconditional(rt::InterConditional, ea::Vector{Any})
-    i = rt.slot
-    if checkbounds(Bool, ea, i)
-        e = @inbounds ea[i]
-        if isa(e, Slot)
-            return Conditional(e, rt.vtype, rt.elsetype)
-        end
-    end
-    return widenconditional(rt)
 end
 
 function abstract_eval_global(M::Module, s::Symbol)
