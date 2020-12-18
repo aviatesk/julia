@@ -327,7 +327,7 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
         end
         return Bool
     end
-    # type-lattice for InterConditional wrapper, InterConditional won't be merged with Conditional
+    # type-lattice for InterConditional wrapper, InterConditional will never be merged with Conditional
     if isa(typea, InterConditional) && isa(typeb, Const)
         if typeb.val === true
             typeb = InterConditional(typea.slot, Any, Union{})

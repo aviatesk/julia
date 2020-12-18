@@ -98,7 +98,9 @@ const CompilerTypes = Union{MaybeUndef, Const, Conditional, NotFound, PartialStr
 # lattice logic #
 #################
 
-function issubconditional(a::AnyConditional, b::AnyConditional)
+# `Conditional` and `InterConditional` are valid in opposite contexts
+# (i.e. local and interprocedural call), as such they will never be compared
+function issubconditional(a::C, b::C) where {C<:AnyConditional}
     if is_same_conditionals(a, b)
         if a.vtype ⊑ b.vtype
             if a.elsetype ⊑ b.elsetype
@@ -109,8 +111,6 @@ function issubconditional(a::AnyConditional, b::AnyConditional)
     return false
 end
 is_same_conditionals(a::Conditional,      b::Conditional)      = slot_id(a.var) === slot_id(b.var)
-is_same_conditionals(a::Conditional,      b::InterConditional) = slot_id(a.var) === b.slot
-is_same_conditionals(a::InterConditional, b::Conditional)      = is_same_conditionals(b, a)
 is_same_conditionals(a::InterConditional, b::InterConditional) = a.slot === b.slot
 
 maybe_extract_const_bool(c::Const) = isa(c.val, Bool) ? c.val : nothing
