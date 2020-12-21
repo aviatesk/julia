@@ -302,7 +302,7 @@ function CodeInstance(result::InferenceResult, @nospecialize(inferred_result::An
         elseif isa(res, PartialStruct)
             rettype_const = res.fields
             const_flags = 0x2
-        elseif isa(res, InterConditional)
+        elseif isa(res, Conditional)
             rettype_const = res
             const_flags = 0x2
         else
@@ -426,7 +426,7 @@ function bestguess_to_interprocedural(bestguess::Conditional, nargs::Int)
     # keep `Conditional` return type only when it constrains any of call argument
     i = slot_id(bestguess.var)
     if 1 < i ≤ nargs
-        return InterConditional(i, bestguess.vtype, bestguess.elsetype)
+        return bestguess
     else
         return widenconditional(bestguess)
     end
@@ -743,7 +743,7 @@ function typeinf_edge(interp::AbstractInterpreter, method::Method, @nospecialize
         rettype = code.rettype
         if isdefined(code, :rettype_const)
             rettype_const = code.rettype_const
-            if isa(rettype_const, InterConditional)
+            if isa(rettype_const, Conditional)
                 return rettype_const, mi
             elseif isa(rettype_const, Vector{Any}) && !(Vector{Any} <: rettype)
                 return PartialStruct(rettype, rettype_const), mi

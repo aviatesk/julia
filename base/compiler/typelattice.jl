@@ -16,42 +16,33 @@
 #     typ
 #     fields::Vector{Any} # elements are other type lattice members
 # end
-import Core: Const, PartialStruct
+import Core: Const, PartialStruct, Conditional
 
-# The type of this value might be Bool.
-# However, to enable a limited amount of back-propagagation,
-# we also keep some information about how this Bool value was created.
-# In particular, if you branch on this value, then may assume that in
-# the true branch, the type of `var` will be limited by `vtype` and in
-# the false branch, it will be limited by `elsetype`. Example:
-# ```
-# cond = isa(x::Union{Int, Float}, Int)::Conditional(x, Int, Float)
-# if cond
-#    # May assume x is `Int` now
-# else
-#    # May assume x is `Float` now
-# end
-# ```
-struct Conditional
-    var::Slot
-    vtype
-    elsetype
-    function Conditional(
-                var,
-                @nospecialize(vtype),
-                @nospecialize(nottype))
-        return new(var, vtype, nottype)
-    end
-end
-
-# # similar to `Conditional`, but conveys inter-procedural constrains imposed on call arguments
-# struct InterConditional
-#     slot::Int
+# # The type of this value might be Bool.
+# # However, to enable a limited amount of back-propagagation,
+# # we also keep some information about how this Bool value was created.
+# # In particular, if you branch on this value, then may assume that in
+# # the true branch, the type of `var` will be limited by `vtype` and in
+# # the false branch, it will be limited by `elsetype`. Example:
+# # ```
+# # cond = isa(x::Union{Int, Float}, Int)::Conditional(x, Int, Float)
+# # if cond
+# #    # May assume x is `Int` now
+# # else
+# #    # May assume x is `Float` now
+# # end
+# # ```
+# struct Conditional
+#     var::Slot
 #     vtype
 #     elsetype
+#     function Conditional(
+#                 var,
+#                 @nospecialize(vtype),
+#                 @nospecialize(nottype))
+#         return new(var, vtype, nottype)
+#     end
 # end
-import Core: InterConditional
-const AnyConditional = Union{Conditional,InterConditional}
 
 struct PartialTypeVar
     tv::TypeVar
@@ -98,9 +89,7 @@ const CompilerTypes = Union{MaybeUndef, Const, Conditional, NotFound, PartialStr
 # lattice logic #
 #################
 
-# `Conditional` and `InterConditional` are valid in opposite contexts
-# (i.e. local and interprocedural call), as such they will never be compared
-function issubconditional(a::C, b::C) where {C<:AnyConditional}
+function issubconditional(a::Conditional, b::Conditional)
     if is_same_conditionals(a, b)
         if a.vtype ⊑ b.vtype
             if a.elsetype ⊑ b.elsetype
@@ -110,11 +99,10 @@ function issubconditional(a::C, b::C) where {C<:AnyConditional}
     end
     return false
 end
-is_same_conditionals(a::Conditional,      b::Conditional)      = slot_id(a.var) === slot_id(b.var)
-is_same_conditionals(a::InterConditional, b::InterConditional) = a.slot === b.slot
+is_same_conditionals(a::Conditional, b::Conditional) = slot_id(a.var) === slot_id(b.var)
 
 maybe_extract_const_bool(c::Const) = isa(c.val, Bool) ? c.val : nothing
-function maybe_extract_const_bool(c::AnyConditional)
+function maybe_extract_const_bool(c::Conditional)
     (c.vtype === Bottom && !(c.elsetype === Bottom)) && return false
     (c.elsetype === Bottom && !(c.vtype === Bottom)) && return true
     nothing
@@ -131,14 +119,14 @@ function ⊑(@nospecialize(a), @nospecialize(b))
     (a === Any || b === NOT_FOUND) && return false
     a === Union{} && return true
     b === Union{} && return false
-    if isa(a, AnyConditional)
-        if isa(b, AnyConditional)
+    if isa(a, Conditional)
+        if isa(b, Conditional)
             return issubconditional(a, b)
         elseif isa(b, Const) && isa(b.val, Bool)
             return maybe_extract_const_bool(a) === b.val
         end
         a = Bool
-    elseif isa(b, AnyConditional)
+    elseif isa(b, Conditional)
         return false
     end
     if isa(a, PartialStruct)
@@ -213,7 +201,7 @@ function is_lattice_equal(@nospecialize(a), @nospecialize(b))
     return a ⊑ b && b ⊑ a
 end
 
-widenconst(c::AnyConditional) = Bool
+widenconst(c::Conditional) = Bool
 function widenconst(c::Const)
     if isa(c.val, Type)
         if isvarargtype(c.val)
@@ -246,7 +234,7 @@ end
 @inline schanged(@nospecialize(n), @nospecialize(o)) = (n !== o) && (o === NOT_FOUND || (n !== NOT_FOUND && !issubstate(n, o)))
 
 widenconditional(@nospecialize typ) = typ
-function widenconditional(typ::AnyConditional)
+function widenconditional(typ::Conditional)
     if typ.vtype === Union{}
         return Const(false)
     elseif typ.elsetype === Union{}

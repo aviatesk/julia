@@ -25,7 +25,7 @@ function is_improvable(@nospecialize(rtype))
         return rtype !== Union{}
     end
     # Could be improved to `Const` or a more precise wrapper
-    return isa(rtype, PartialStruct) || isa(rtype, InterConditional)
+    return isa(rtype, PartialStruct) || isa(rtype, Conditional)
 end
 
 function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f), argtypes::Vector{Any}, @nospecialize(atype), sv::InferenceState,
@@ -1046,12 +1046,12 @@ function callinfo_from_interprocedural(callinfo::CallMeta, ea::Union{Nothing,Vec
     end
 
     rt = callinfo.rt
-    if isa(rt, InterConditional)
+    if isa(rt, Conditional)
         # try to convert interprocedural conditional constraint from callee into the constraint
         # on slots of the current frame
-        i = rt.slot
+        i = slot_id(rt.var)
         if checkbounds(Bool, ea, i)
-            # `InterConditional` is supposed to be passed here only after "valid" `abstract_call`,
+            # `Conditional` is supposed to be passed here only after "valid" `abstract_call`,
             # and thus `i` should always be in bounds of `ea`, but just for safety
             e = @inbounds ea[i]
             if isa(e, Slot)
