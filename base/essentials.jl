@@ -813,8 +813,7 @@ const missing = Missing()
 
 Indicate whether `x` is [`missing`](@ref).
 """
-ismissing(::Any) = false
-ismissing(::Missing) = true
+ismissing(x) = x === missing
 
 function popfirst! end
 

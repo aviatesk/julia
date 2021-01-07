@@ -73,10 +73,14 @@ julia> Meta.isexpr(ex, :call, 2)
 true
 ```
 """
-isexpr(@nospecialize(ex), head::Symbol) = isa(ex, Expr) && ex.head === head
+function isexpr end
+
+# seemingly useless `head′` and `n′` are here just to help inference back-propagate
+# `isa(ex, Expr)` constraints to the caller inter-procedurally
+isexpr(@nospecialize(ex), head::Symbol) = isa(ex, Expr) && (head′ = head; ex.head === head′)
 isexpr(@nospecialize(ex), heads) = isa(ex, Expr) && in(ex.head, heads)
-isexpr(@nospecialize(ex), head::Symbol, n::Int) = isa(ex, Expr) && ex.head === head && length(ex.args) == n
-isexpr(@nospecialize(ex), heads, n::Int) = isa(ex, Expr) && in(ex.head, heads) && length(ex.args) == n
+isexpr(@nospecialize(ex), head::Symbol, n::Int) = isa(ex, Expr) && (head′ = head; ex.head === head′) && (n′ = n; length(ex.args) == n′)
+isexpr(@nospecialize(ex), heads, n::Int) = isa(ex, Expr) && in(ex.head, heads) && (n′ = n; length(ex.args) == n′)
 
 """
     replace_sourceloc!(location, expr)

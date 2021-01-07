@@ -1315,8 +1315,10 @@ function operator_associativity(s::Symbol)
     return :left
 end
 
-is_expr(@nospecialize(ex), head::Symbol)         = isa(ex, Expr) && (ex.head === head)
-is_expr(@nospecialize(ex), head::Symbol, n::Int) = is_expr(ex, head) && length((ex::Expr).args) == n
+# seemingly useless `head′` and `n′` are here just to help inference back-propagate
+# `isa(ex, Expr)` constraints to the caller inter-procedurally
+is_expr(@nospecialize(ex), head::Symbol)         = isa(ex, Expr) && (head′ = head; ex.head === head′)
+is_expr(@nospecialize(ex), head::Symbol, n::Int) = is_expr(ex, head) && (n′ = n; length((ex::Expr).args) == n′)
 
 is_quoted(ex)            = false
 is_quoted(ex::QuoteNode) = true
