@@ -3021,3 +3021,67 @@ function splat_lotta_unions()
     (a...,b...,c...)
 end
 @test Core.Compiler.return_type(splat_lotta_unions, Tuple{}) >: Tuple{Int,Int,Int}
+
+@testset "constant prop' for union split signature" begin
+    anonymous_module() = Core.eval(@__MODULE__, :(module $(gensym()) end))::Module
+
+    # indexing into tuples really relies on constant prop', and we will get looser result
+    # (`Union{Int,String,Char}`) if constant prop' doesn't happen for splitunion signatures
+    tt = (Union{Tuple{Int,String},Tuple{Int,Char}},)
+    @test Base.return_types(tt) do t
+        getindex(t, 1)
+    end == Any[Int]
+    @test Base.return_types(tt) do t
+        getindex(t, 2)
+    end == Any[Union{String,Char}]
+    @test Base.return_types(tt) do t
+        a, b = t
+        a
+    end == Any[Int]
+    @test Base.return_types(tt) do t
+        a, b = t
+        b
+    end == Any[Union{String,Char}]
+
+    @test (@eval anonymous_module() begin
+        struct F32
+            val::Float32
+            _v::Int
+        end
+        struct F64
+            val::Float64
+            _v::Int
+        end
+        Base.return_types((Union{F32,F64},)) do f
+            f.val
+        end
+    end) == Any[Union{Float32,Float64}]
+
+    @test (@eval anonymous_module() begin
+        struct F32
+            val::Float32
+            _v
+        end
+        struct F64
+            val::Float64
+            _v
+        end
+        Base.return_types((Union{F32,F64},)) do f
+            f.val
+        end
+    end) == Any[Union{Float32,Float64}]
+
+    @test Base.return_types((Union{Tuple{Nothing,Any,Any},Tuple{Nothing,Any}},)) do t
+        getindex(t, 1)
+    end == Any[Nothing]
+
+    # issue #37610
+    @test Base.return_types((typeof(("foo" => "bar", "baz" => nothing)), Int)) do a, i
+        y = iterate(a, i)
+        if y !== nothing
+            (k, v), st = y
+            return k, v
+        end
+        return y
+    end == Any[Union{Nothing, Tuple{String, Union{Nothing, String}}}]
+end
