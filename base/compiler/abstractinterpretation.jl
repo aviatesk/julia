@@ -417,8 +417,9 @@ function maybe_get_const_prop_profitable(interp::AbstractInterpreter, @nospecial
     length(argtypes) >= nargs || return nothing
     const_prop_argument_heuristic(interp, argtypes) || const_prop_rettype_heuristic(interp, rettype) || return nothing
     allconst = is_allconst(argtypes)
-    const_prop_function_heuristic(interp, f, argtypes, nargs, allconst) || return nothing
-    force = force_const_prop(interp, f, method, allconst)
+    force = force_const_prop(interp, f, method)
+    force || const_prop_function_heuristic(interp, f, argtypes, nargs, allconst) || return nothing
+    force |= allconst
     mi = specialize_method(match, !force)
     mi === nothing && return nothing
     mi = mi::MethodInstance
@@ -491,13 +492,24 @@ function const_prop_function_heuristic(interp::AbstractInterpreter, @nospecializ
                      istopfunction(f, :(==)) || istopfunction(f, :!=) ||
                      istopfunction(f, :<=) || istopfunction(f, :>=) || istopfunction(f, :<) || istopfunction(f, :>) ||
                      istopfunction(f, :<<) || istopfunction(f, :>>))
-        return false
+        # it is almost useless to inline the op of when all the same type,
+        # but highly worthwhile to inline promote of a constant
+        length(argtypes) > 2 || return false
+        t1 = widenconst(argtypes[2])
+        all_same = true
+        for i in 3:length(argtypes)
+            if widenconst(argtypes[i]) !== t1
+                all_same = false
+                break
+            end
+        end
+        all_same && return false
     end
     return true
 end
 
-function force_const_prop(interp::AbstractInterpreter, @nospecialize(f), method::Method, allconst::Bool)
-    if allconst || method.aggressive_constprop || InferenceParams(interp).aggressive_constant_propagation
+function force_const_prop(interp::AbstractInterpreter, @nospecialize(f), method::Method)
+    if method.aggressive_constprop || InferenceParams(interp).aggressive_constant_propagation
         return true
     end
     return istopfunction(f, :getproperty) || istopfunction(f, :setproperty!)
