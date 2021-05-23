@@ -1833,7 +1833,8 @@ end
     end == Any[Tuple{Int,Int}]
 end
 
-@testset "conditional constraint propagation from non-`Conditional` object" begin
+@testset "state update on branching" begin
+    # refine condition type into constant boolean value on branching
     @test Base.return_types((Bool,)) do b
         if b
             return !b ? nothing : 1 # ::Int
@@ -1842,6 +1843,7 @@ end
         end
     end == Any[Int]
 
+    # even when the original type isn't boolean type
     @test Base.return_types((Any,)) do b
         if b
             return b # ::Bool
@@ -1849,6 +1851,16 @@ end
             return nothing
         end
     end == Any[Union{Bool,Nothing}]
+
+    # even when the original type is `Conditional`
+    @test Base.return_types((Any,)) do a
+        b = isa(a, Int)
+        if b
+            return !b ? nothing : a # ::Int
+        else
+            return 0
+        end
+    end == Any[Int]
 end
 
 function f25579(g)

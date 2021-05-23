@@ -1749,11 +1749,6 @@ function typeinf_local(interp::AbstractInterpreter, frame::InferenceState)
                     empty!(frame.pclimitations)
                     break
                 end
-                if !(isa(condt, Const) || isa(condt, Conditional)) && isa(condx, SlotNumber)
-                    # if this non-`Conditional` object is a slot, we form and propagate
-                    # the conditional constraint on it
-                    condt = Conditional(condx, Const(true), Const(false))
-                end
                 condval = maybe_extract_const_bool(condt)
                 l = stmt.dest::Int
                 if !isempty(frame.pclimitations)
@@ -1774,6 +1769,12 @@ function typeinf_local(interp::AbstractInterpreter, frame::InferenceState)
                     if isa(condt, Conditional)
                         changes_else = conditional_changes(changes_else, condt.elsetype, condt.var)
                         changes      = conditional_changes(changes,      condt.vtype,    condt.var)
+                    end
+                    if isa(condx, SlotNumber)
+                        tfalse = isa(condt, Conditional) ? Conditional(condt.var, Bottom, condt.elsetype) : Const(false)
+                        ttrue  = isa(condt, Conditional) ? Conditional(condt.var, condt.vtype, Bottom)    : Const(true)
+                        changes_else = add_state_change!(changes_else, condx, tfalse, true)
+                        changes      = add_state_change!(changes,      condx, ttrue,  true)
                     end
                     newstate_else = stupdate!(states[l], changes_else)
                     if newstate_else !== nothing
