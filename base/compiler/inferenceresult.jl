@@ -32,6 +32,7 @@ function matching_cache_argtypes(
     for i in 1:length(argtypes)
         argtype = argtypes[i]
         # forward `Conditional` if it conveys a constraint on any other argument
+        # TODO add similar handling for `MustAlias`
         if isa(argtype, Conditional) && fargs !== nothing
             cnd = argtype
             slotid = find_constrained_arg(cnd, fargs, sv)
@@ -54,7 +55,7 @@ function matching_cache_argtypes(
                 continue
             end
         end
-        given_argtypes[i] = widenconditional(argtype)
+        given_argtypes[i] = widenslotwrapper(argtype)
     end
     isva = def.isva
     if isva || isvarargtype(given_argtypes[end])

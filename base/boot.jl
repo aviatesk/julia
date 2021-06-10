@@ -435,6 +435,7 @@ eval(Core, quote
     PartialStruct(@nospecialize(typ), fields::Array{Any, 1}) = $(Expr(:new, :PartialStruct, :typ, :fields))
     PartialOpaque(@nospecialize(typ), @nospecialize(env), parent::MethodInstance, source::Method) = $(Expr(:new, :PartialOpaque, :typ, :env, :parent, :source))
     InterConditional(slot::Int, @nospecialize(vtype), @nospecialize(elsetype)) = $(Expr(:new, :InterConditional, :slot, :vtype, :elsetype))
+    InterMustAlias(slot::Int, fld::Const, @nospecialize(fldtyp)) = $(Expr(:new, :InterMustAlias, :slot, :fld, :fldtyp))
     MethodMatch(@nospecialize(spec_types), sparams::SimpleVector, method::Method, fully_covers::Bool) = $(Expr(:new, :MethodMatch, :spec_types, :sparams, :method, :fully_covers))
 end)
 

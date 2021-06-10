@@ -223,8 +223,8 @@ end
 add_tfunc(Core.ifelse, 3, 3, ifelse_tfunc, 1)
 
 function egal_tfunc(@nospecialize(x), @nospecialize(y))
-    xx = widenconditional(x)
-    yy = widenconditional(y)
+    xx = widenslotwrapper(x)
+    yy = widenslotwrapper(y)
     if isa(x, Conditional) && isa(yy, Const)
         yy.val === false && return Conditional(x.var, x.elsetype, x.vtype)
         yy.val === true && return x
@@ -316,8 +316,6 @@ function sizeof_nothrow(@nospecialize(x))
         if !isa(x.val, Type) || x.val === DataType
             return true
         end
-    elseif isa(x, Conditional)
-        return true
     end
     xu = unwrap_unionall(x)
     if isa(xu, Union)
@@ -364,7 +362,8 @@ function _const_sizeof(@nospecialize(x))
         end
     return Const(size)
 end
-function sizeof_tfunc(@nospecialize(x),)
+function sizeof_tfunc(@nospecialize(x))
+    x = widenmustalias(x)
     isa(x, Const) && return _const_sizeof(x.val)
     isa(x, Conditional) && return _const_sizeof(Bool)
     isconstType(x) && return _const_sizeof(x.parameters[1])
@@ -837,6 +836,7 @@ function getfield_tfunc(s00, name, order, boundscheck)
 end
 getfield_tfunc(@nospecialize(s00), @nospecialize(name)) = _getfield_tfunc(s00, name, false)
 function _getfield_tfunc(@nospecialize(s00), @nospecialize(name), setfield::Bool)
+    s00 = widenmustalias(s00)
     if isa(s00, Conditional)
         return Bottom # Bool has no fields
     elseif isa(s00, Const) || isconstType(s00)
@@ -1147,6 +1147,7 @@ end
 
 fieldtype_tfunc(s0, name, boundscheck) = (@nospecialize; fieldtype_tfunc(s0, name))
 function fieldtype_tfunc(@nospecialize(s0), @nospecialize(name))
+    s0 = widenmustalias(s0)
     if s0 === Bottom
         return Bottom
     end
@@ -1311,7 +1312,7 @@ function apply_type_nothrow(argtypes::Array{Any, 1}, @nospecialize(rt))
     u = headtype
     for i = 2:length(argtypes)
         isa(u, UnionAll) || return false
-        ai = widenconditional(argtypes[i])
+        ai = argtypes[i]
         if ai ⊑ TypeVar || ai === DataType
             # We don't know anything about the bounds of this typevar, but as
             # long as the UnionAll is not constrained, that's ok.
@@ -1355,6 +1356,7 @@ const _tvarnames = Symbol[:_A, :_B, :_C, :_D, :_E, :_F, :_G, :_H, :_I, :_J, :_K,
 
 # TODO: handle e.g. apply_type(T, R::Union{Type{Int32},Type{Float64}})
 function apply_type_tfunc(@nospecialize(headtypetype), @nospecialize args...)
+    headtypetype = widenslotwrapper(headtypetype)
     if isa(headtypetype, Const)
         headtype = headtypetype.val
     elseif isconstType(headtypetype)
@@ -1421,7 +1423,7 @@ function apply_type_tfunc(@nospecialize(headtypetype), @nospecialize args...)
     varnamectr = 1
     ua = headtype
     for i = 1:largs
-        ai = widenconditional(args[i])
+        ai = widenslotwrapper(args[i])
         if isType(ai)
             aip1 = ai.parameters[1]
             canconst &= !has_free_typevars(aip1)
@@ -1513,13 +1515,13 @@ add_tfunc(apply_type, 1, INT_INF, apply_type_tfunc, 10)
 function has_struct_const_info(x)
     isa(x, PartialTypeVar) && return true
     isa(x, Conditional) && return true
-    return has_nontrivial_const_info(x)
+    return has_nontrivial_const_info(widenmustalias(x))
 end
 
 # convert the dispatch tuple type argtype to the real (concrete) type of
 # the tuple of those values
 function tuple_tfunc(argtypes::Vector{Any})
-    argtypes = anymap(widenconditional, argtypes)
+    argtypes = anymap(widenslotwrapper, argtypes)
     all_are_const = true
     for i in 1:length(argtypes)
         if !isa(argtypes[i], Const)
@@ -1691,6 +1693,8 @@ function arrayset_typecheck(@nospecialize(arytype), @nospecialize(elmtype))
 end
 
 # Query whether the given builtin is guaranteed not to throw given the argtypes
+# NOTE this function is only used in optimization, not in abstractinterpret, and so we don't
+# need to handle certain lattice elements like Conditional or MustAlias within these function
 function _builtin_nothrow(@nospecialize(f), argtypes::Array{Any,1}, @nospecialize(rt))
     if f === arrayset
         array_builtin_common_nothrow(argtypes, 4) || return true
@@ -2019,9 +2023,9 @@ end
 # while this assumes that it is an absolutely precise and accurate and exact model of both
 function return_type_tfunc(interp::AbstractInterpreter, argtypes::Vector{Any}, sv::InferenceState)
     if length(argtypes) == 3
-        tt = argtypes[3]
+        tt = widenslotwrapper(argtypes[3])
         if isa(tt, Const) || (isType(tt) && !has_free_typevars(tt))
-            aft = argtypes[2]
+            aft = widenslotwrapper(argtypes[2])
             if isa(aft, Const) || (isType(aft) && !has_free_typevars(aft)) ||
                    (isconcretetype(aft) && !(aft <: Builtin))
                 af_argtype = isa(tt, Const) ? tt.val : (tt::DataType).parameters[1]
@@ -2038,7 +2042,7 @@ function return_type_tfunc(interp::AbstractInterpreter, argtypes::Vector{Any}, s
                     call = abstract_call(interp, ArgInfo(nothing, argtypes_vec), sv, -1)
                     sv.restrict_abstract_call_sites = old_restrict
                     info = verbose_stmt_info(interp) ? MethodResultPure(ReturnTypeCallInfo(call.info)) : MethodResultPure()
-                    rt = widenconditional(call.rt)
+                    rt = widenslotwrapper(call.rt)
                     if isa(rt, Const)
                         # output was computed to be constant
                         return CallMeta(Const(typeof(rt.val)), EFFECTS_TOTAL, info)

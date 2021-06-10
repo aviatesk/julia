@@ -1,3 +1,4 @@
+
 // This file is a part of Julia. License is MIT: https://julialang.org/license
 
 /*
@@ -80,7 +81,7 @@ extern "C" {
 // TODO: put WeakRefs on the weak_refs list during deserialization
 // TODO: handle finalizers
 
-#define NUM_TAGS    155
+#define NUM_TAGS    156
 
 // An array of references that need to be restored from the sysimg
 // This is a manually constructed dual of the gvars array, which would be produced by codegen for Julia code, for C.
@@ -120,6 +121,7 @@ jl_value_t **const*const get_tags(void) {
         INSERT_TAG(jl_partial_struct_type);
         INSERT_TAG(jl_partial_opaque_type);
         INSERT_TAG(jl_interconditional_type);
+        INSERT_TAG(jl_intermustalias_type);
         INSERT_TAG(jl_method_match_type);
         INSERT_TAG(jl_pinode_type);
         INSERT_TAG(jl_phinode_type);
