@@ -144,6 +144,27 @@ function get_compileable_sig(method::Method, @nospecialize(atypes), sparams::Sim
     isa(atypes, DataType) || return nothing
     mt = ccall(:jl_method_table_for, Any, (Any,), atypes)
     mt === nothing && return nothing
+    atypes′ = ccall(:jl_normalize_to_compilable_sig, Any, (Any, Any, Any, Any),
+        mt,  atypes, sparams, method)
+    is_compileable = isdispatchtuple(atypes) ||
+        ccall(:jl_isa_compileable_sig, Int32, (Any, Any), atypes′, method) ≠ 0
+    return is_compileable ? atypes′ : nothing
+end
+
+is_nospecialized(method::Method) = method.nospecialize ≠ 0
+
+function get_nospecialize_sig(method::Method, @nospecialize(atypes), sparams::SimpleVector)
+    if isa(atypes, UnionAll)
+        atypes, sparams = normalize_typevars(method, atypes, sparams)
+    end
+    # if atypes isa UnionAll
+    #     ua = unwrap_unionall(atypes)
+    #     ua isa DataType || return method.sig
+    #     atypes = Tuple{Any[rewrap_unionall(ua.parameters[i], atypes) for i = 1:length(ua.parameters)]...}
+    # end
+    isa(atypes, DataType) || return method.sig
+    mt = ccall(:jl_method_table_for, Any, (Any,), atypes)
+    mt === nothing && return method.sig
     return ccall(:jl_normalize_to_compilable_sig, Any, (Any, Any, Any, Any),
         mt, atypes, sparams, method)
 end

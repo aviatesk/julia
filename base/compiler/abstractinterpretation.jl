@@ -350,6 +350,9 @@ function abstract_call_method(interp::AbstractInterpreter, method::Method, @nosp
         add_remark!(interp, sv, "Refusing to infer into `depwarn`")
         return MethodCallResult(Any, false, false, nothing)
     end
+    if is_nospecialized(method)
+        sig = get_nospecialize_sig(method, sig, sparams)
+    end
     topmost = nothing
     # Limit argument type tuple growth of functions:
     # look through the parents list to see if there's a call to the same method
@@ -584,7 +587,12 @@ function maybe_get_const_prop_profitable(interp::AbstractInterpreter, result::Me
         end
     end
     force |= allconst
-    mi = specialize_method(match; preexisting=!force)
+    if is_nospecialized(method)
+        sig = get_nospecialize_sig(method, match.spec_types, match.sparams)
+        mi = specialize_method(method, sig, match.sparams; preexisting=!force)
+    else
+        mi = specialize_method(match; preexisting=!force)
+    end
     if mi === nothing
         add_remark!(interp, sv, "[constprop] Failed to specialize")
         return nothing
