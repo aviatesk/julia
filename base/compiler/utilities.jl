@@ -201,6 +201,9 @@ function specialize_method(method::Method, @nospecialize(atypes), sparams::Simpl
     if isa(atypes, UnionAll)
         atypes, sparams = normalize_typevars(method, atypes, sparams)
     end
+    if is_nospecialized(method)
+        atypes = get_nospecialize_sig(method, atypes, sparams)
+    end
     if compilesig
         new_atypes = get_compileable_sig(method, atypes, sparams)
         new_atypes === nothing && return nothing
