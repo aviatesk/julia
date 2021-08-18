@@ -702,7 +702,8 @@ JL_DLLEXPORT jl_array_t *jl_compress_ir(jl_method_t *m, jl_code_info_t *code)
         jl_current_task->ptls
     };
 
-    uint8_t flags = (code->aggressive_constprop << 5)
+    uint8_t flags = (code->noinfer << 6)
+                  | (code->aggressive_constprop << 5)
                   | (code->inferred << 4)
                   | (code->inlineable << 2) // 0 <= code->inlineable <= 2
                   | (code->propagate_inbounds << 1)
@@ -788,6 +789,7 @@ JL_DLLEXPORT jl_code_info_t *jl_uncompress_ir(jl_method_t *m, jl_code_instance_t
 
     jl_code_info_t *code = jl_new_code_info_uninit();
     uint8_t flags = read_uint8(s.s);
+    code->noinfer = !!(flags & (1 << 6));
     code->aggressive_constprop = !!(flags & (1 << 5));
     code->inferred = !!(flags & (1 << 4));
     code->inlineable = !!(flags & (1 << 2));

@@ -111,7 +111,8 @@ end
 
 is_nospecialized(method::Method) = method.nospecialize ≠ 0
 
-is_noinfer(method::Method) = is_nospecialized(method) && is_declared_noinline(method)
+is_noinfer(method::Method) = method.noinfer && is_nospecialized(method)
+# is_noinfer(method::Method) = is_nospecialized(method) &&  is_declared_noinline(method)
 
 ###########################
 # MethodInstance/CodeInfo #

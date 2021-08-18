@@ -572,9 +572,9 @@ function maybe_get_const_prop_profitable(interp::AbstractInterpreter, result::Me
                                          sv::InferenceState)
     const_prop_entry_heuristic(interp, result, sv) || return nothing
     method = match.method
-    if is_noinfer(method)
-        return nothing
-    end
+    # if is_noinfer(method)
+    #     return nothing
+    # end
     nargs::Int = method.nargs
     method.isva && (nargs -= 1)
     if length(argtypes) < nargs
@@ -590,7 +590,13 @@ function maybe_get_const_prop_profitable(interp::AbstractInterpreter, result::Me
         end
     end
     force |= allconst
-    mi = specialize_method(match; preexisting=!force)
+    if is_noinfer(method)
+        atypes, sparams = match.spec_types, match.sparams
+        atypes = get_nospecialize_sig(method, atypes, sparams)
+        mi = specialize_method(method, atypes, sparams; preexisting=!force)
+    else
+        mi = specialize_method(match; preexisting=!force)
+    end
     if mi === nothing
         add_remark!(interp, sv, "[constprop] Failed to specialize")
         return nothing

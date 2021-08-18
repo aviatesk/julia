@@ -785,8 +785,7 @@ end
 
 function analyze_method!(match::MethodMatch, atypes::Vector{Any},
                          state::InliningState, @nospecialize(stmttyp))
-    method = match.method
-    methsig = method.sig
+    (; method, sparams) = match
 
     # Check that we habe the correct number of arguments
     na = Int(method.nargs)
@@ -800,7 +799,7 @@ function analyze_method!(match::MethodMatch, atypes::Vector{Any},
     end
 
     # Bail out if any static parameters are left as TypeVar
-    validate_sparams(match.sparams) || return nothing
+    validate_sparams(sparams) || return nothing
 
     et = state.et
 
@@ -808,11 +807,17 @@ function analyze_method!(match::MethodMatch, atypes::Vector{Any},
         return compileable_specialization(et, match)
     end
 
-    # bail out `@noinline` case (including `@noinfer`)
+    # bail out `@noinline` case
     is_declared_noinline(method) && return compileable_specialization(et, match)
 
     # See if there exists a specialization for this method signature
-    mi = specialize_method(match; preexisting=true) # Union{Nothing, MethodInstance}
+    if is_noinfer(method)
+        sig = match.spec_types
+        sig = get_nospecialize_sig(method, sig, sparams)
+        mi = specialize_method(method, sig, sparams; preexisting=true)
+    else
+        mi = specialize_method(match; preexisting=true)
+    end
     if !isa(mi, MethodInstance)
         return compileable_specialization(et, match)
     end
