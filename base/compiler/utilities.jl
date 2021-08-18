@@ -96,6 +96,23 @@ function is_inlineable_constant(@nospecialize(x))
     return count_const_size(x) <= MAX_INLINE_CONST_SIZE
 end
 
+function is_declared_inline(method::Method)
+    isdefined(method, :source) || return false
+    source = method.source
+    isa(source, Vector{UInt8}) && return source[1] & 1 << 2 ≠ 0
+    return (source::CodeInfo).inlineable
+end
+function is_declared_noinline(method::Method)
+    isdefined(method, :source) || return false
+    source = method.source
+    isa(source, Vector{UInt8}) && return source[1] & 1 << 3 ≠ 0
+    return false # `@noinline` declaration on `CodeInfo` source isn't supported
+end
+
+is_nospecialized(method::Method) = method.nospecialize ≠ 0
+
+is_noinfer(method::Method) = is_nospecialized(method) && is_declared_noinline(method)
+
 ###########################
 # MethodInstance/CodeInfo #
 ###########################
@@ -144,6 +161,20 @@ function get_compileable_sig(method::Method, @nospecialize(atypes), sparams::Sim
     isa(atypes, DataType) || return nothing
     mt = ccall(:jl_method_table_for, Any, (Any,), atypes)
     mt === nothing && return nothing
+    atypes′ = ccall(:jl_normalize_to_compilable_sig, Any, (Any, Any, Any, Any),
+        mt,  atypes, sparams, method)
+    is_compileable = isdispatchtuple(atypes) ||
+        ccall(:jl_isa_compileable_sig, Int32, (Any, Any), atypes′, method) ≠ 0
+    return is_compileable ? atypes′ : nothing
+end
+
+function get_nospecialize_sig(method::Method, @nospecialize(atypes), sparams::SimpleVector)
+    if isa(atypes, UnionAll)
+        atypes, sparams = normalize_typevars(method, atypes, sparams)
+    end
+    isa(atypes, DataType) || return method.sig
+    mt = ccall(:jl_method_table_for, Any, (Any,), atypes)
+    mt === nothing && return method.sig
     return ccall(:jl_normalize_to_compilable_sig, Any, (Any, Any, Any, Any),
         mt, atypes, sparams, method)
 end
@@ -176,7 +207,7 @@ function normalize_typevars(method::Method, @nospecialize(atypes), sparams::Simp
 end
 
 # get a handle to the unique specialization object representing a particular instantiation of a call
-function specialize_method(method::Method, @nospecialize(atypes), sparams::SimpleVector, preexisting::Bool=false, compilesig::Bool=false)
+function specialize_method(method::Method, @nospecialize(atypes), sparams::SimpleVector; preexisting::Bool=false, compilesig::Bool=false)
     if isa(atypes, UnionAll)
         atypes, sparams = normalize_typevars(method, atypes, sparams)
     end
@@ -193,14 +224,14 @@ function specialize_method(method::Method, @nospecialize(atypes), sparams::Simpl
     return ccall(:jl_specializations_get_linfo, Ref{MethodInstance}, (Any, Any, Any), method, atypes, sparams)
 end
 
-function specialize_method(match::MethodMatch, preexisting::Bool=false, compilesig::Bool=false)
-    return specialize_method(match.method, match.spec_types, match.sparams, preexisting, compilesig)
+function specialize_method(match::MethodMatch; kwargs...)
+    return specialize_method(match.method, match.spec_types, match.sparams; kwargs...)
 end
 
 # This function is used for computing alternate limit heuristics
 function method_for_inference_heuristics(method::Method, @nospecialize(sig), sparams::SimpleVector)
     if isdefined(method, :generator) && method.generator.expand_early && may_invoke_generator(method, sig, sparams)
-        method_instance = specialize_method(method, sig, sparams, false)
+        method_instance = specialize_method(method, sig, sparams)
         if isa(method_instance, MethodInstance)
             cinfo = get_staged(method_instance)
             if isa(cinfo, CodeInfo)

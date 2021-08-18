@@ -350,6 +350,9 @@ function abstract_call_method(interp::AbstractInterpreter, method::Method, @nosp
         add_remark!(interp, sv, "Refusing to infer into `depwarn`")
         return MethodCallResult(Any, false, false, nothing)
     end
+    if is_noinfer(method)
+        sig = get_nospecialize_sig(method, sig, sparams)
+    end
     topmost = nothing
     # Limit argument type tuple growth of functions:
     # look through the parents list to see if there's a call to the same method
@@ -569,6 +572,9 @@ function maybe_get_const_prop_profitable(interp::AbstractInterpreter, result::Me
                                          sv::InferenceState)
     const_prop_entry_heuristic(interp, result, sv) || return nothing
     method = match.method
+    if is_noinfer(method)
+        return nothing
+    end
     nargs::Int = method.nargs
     method.isva && (nargs -= 1)
     if length(argtypes) < nargs
@@ -584,7 +590,7 @@ function maybe_get_const_prop_profitable(interp::AbstractInterpreter, result::Me
         end
     end
     force |= allconst
-    mi = specialize_method(match, !force)
+    mi = specialize_method(match; preexisting=!force)
     if mi === nothing
         add_remark!(interp, sv, "[constprop] Failed to specialize")
         return nothing
@@ -700,17 +706,20 @@ function const_prop_methodinstance_heuristic(interp::AbstractInterpreter, method
         # isn't particularly helpful here.
         return true
     end
-    # Peek at the inferred result for the function to determine if the optimizer
-    # was able to cut it down to something simple (inlineable in particular).
-    # If so, there's a good chance we might be able to const prop all the way
-    # through and learn something new.
-    code = get(code_cache(interp), mi, nothing)
-    declared_inline = isdefined(method, :source) && ccall(:jl_ir_flag_inlineable, Bool, (Any,), method.source)
-    cache_inlineable = declared_inline
-    if isdefined(code, :inferred) && !cache_inlineable
-        cache_inf = code.inferred
-        if !(cache_inf === nothing)
-            cache_inlineable = inlining_policy(interp)(cache_inf) !== nothing
+    # we approximate the profitability of the const-prop by inlineability below,
+    # check if the method is declared to be inlined first
+    cache_inlineable = is_declared_inline(method)
+    if !cache_inlineable
+        # Peek at the inferred result for the function to determine if the optimizer
+        # was able to cut it down to something simple (inlineable in particular).
+        # If so, there's a good chance we might be able to const prop all the way
+        # through and learn something new.
+        code = get(code_cache(interp), mi, nothing)
+        if isdefined(code, :inferred)
+            cache_inf = code.inferred
+            if !(cache_inf === nothing)
+                cache_inlineable = inlining_policy(interp)(cache_inf) !== nothing
+            end
         end
     end
     if !cache_inlineable
@@ -983,7 +992,7 @@ end
 function is_method_pure(method::Method, @nospecialize(sig), sparams::SimpleVector)
     if isdefined(method, :generator)
         method.generator.expand_early || return false
-        mi = specialize_method(method, sig, sparams, false)
+        mi = specialize_method(method, sig, sparams)
         isa(mi, MethodInstance) || return false
         staged = get_staged(mi)
         (staged isa CodeInfo && (staged::CodeInfo).pure) || return false

@@ -286,11 +286,12 @@ f34900(x, y::Int) = y
 f34900(x::Int, y::Int) = invoke(f34900, Tuple{Int, Any}, x, y)
 @test fully_eliminated(f34900, Tuple{Int, Int}, Core.Argument(2))
 
-@testset "check jl_ir_flag_inlineable for inline macro" begin
-    @test ccall(:jl_ir_flag_inlineable, Bool, (Any,), first(methods(@inline x -> x)).source)
-    @test !ccall(:jl_ir_flag_inlineable, Bool, (Any,), first(methods( x -> x)).source)
-    @test ccall(:jl_ir_flag_inlineable, Bool, (Any,), first(methods(@inline function f(x) x end)).source)
-    @test !ccall(:jl_ir_flag_inlineable, Bool, (Any,), first(methods(function f(x) x end)).source)
+@testset "check inline macro" begin
+    import Core.Compiler: is_declared_inline
+    @test is_declared_inline(only(methods(@inline x -> x)))
+    @test !is_declared_inline(only(methods(x -> x)))
+    @test is_declared_inline(only(methods(@inline function f(x) x end)))
+    @test !is_declared_inline(only(methods(function f(x) x end)))
 end
 
 const _a_global_array = [1]
