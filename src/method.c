@@ -289,6 +289,8 @@ static void jl_code_info_set_ir(jl_code_info_t *li, jl_expr_t *ir)
                     li->propagate_inbounds = 1;
                 else if (ma == (jl_value_t*)aggressive_constprop_sym)
                     li->aggressive_constprop = 1;
+                else if (ma == (jl_value_t*)noinfer_sym)
+                    li->noinfer = 1;
                 else
                     jl_array_ptr_set(meta, ins++, ma);
             }
@@ -380,6 +382,7 @@ JL_DLLEXPORT jl_code_info_t *jl_new_code_info_uninit(void)
     src->pure = 0;
     src->edges = jl_nothing;
     src->aggressive_constprop = 0;
+    src->noinfer = 0;
     return src;
 }
 
@@ -567,6 +570,7 @@ static void jl_method_set_source(jl_method_t *m, jl_code_info_t *src)
     m->called = called;
     m->pure = src->pure;
     m->aggressive_constprop = src->aggressive_constprop;
+    m->noinfer = src->noinfer;
     jl_add_function_name_to_lineinfo(src, (jl_value_t*)m->name);
 
     jl_array_t *copy = NULL;
@@ -683,6 +687,7 @@ JL_DLLEXPORT jl_method_t *jl_new_method_uninit(jl_module_t *module)
     m->deleted_world = ~(size_t)0;
     m->is_for_opaque_closure = 0;
     m->aggressive_constprop = 0;
+    m->noinfer = 0;
     JL_MUTEX_INIT(&m->writelock);
     return m;
 }

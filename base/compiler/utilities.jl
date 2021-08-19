@@ -96,6 +96,11 @@ function is_inlineable_constant(@nospecialize(x))
     return count_const_size(x) <= MAX_INLINE_CONST_SIZE
 end
 
+is_nospecialized(method::Method) = method.nospecialize ≠ 0
+
+is_noinfer(method::Method) = method.noinfer && is_nospecialized(method)
+# is_noinfer(method::Method) = is_nospecialized(method) &&  is_declared_noinline(method)
+
 ###########################
 # MethodInstance/CodeInfo #
 ###########################
@@ -144,6 +149,20 @@ function get_compileable_sig(method::Method, @nospecialize(atypes), sparams::Sim
     isa(atypes, DataType) || return nothing
     mt = ccall(:jl_method_table_for, Any, (Any,), atypes)
     mt === nothing && return nothing
+    atypes′ = ccall(:jl_normalize_to_compilable_sig, Any, (Any, Any, Any, Any),
+        mt,  atypes, sparams, method)
+    is_compileable = isdispatchtuple(atypes) ||
+        ccall(:jl_isa_compileable_sig, Int32, (Any, Any), atypes′, method) ≠ 0
+    return is_compileable ? atypes′ : nothing
+end
+
+function get_nospecialize_sig(method::Method, @nospecialize(atypes), sparams::SimpleVector)
+    if isa(atypes, UnionAll)
+        atypes, sparams = normalize_typevars(method, atypes, sparams)
+    end
+    isa(atypes, DataType) || return method.sig
+    mt = ccall(:jl_method_table_for, Any, (Any,), atypes)
+    mt === nothing && return method.sig
     return ccall(:jl_normalize_to_compilable_sig, Any, (Any, Any, Any, Any),
         mt, atypes, sparams, method)
 end
@@ -188,13 +207,18 @@ function specialize_method(method::Method, @nospecialize(atypes), sparams::Simpl
     if preexisting
         # check cached specializations
         # for an existing result stored there
-        return ccall(:jl_specializations_lookup, Any, (Any, Any), method, atypes)
+        return ccall(:jl_specializations_lookup, Ref{MethodInstance}, (Any, Any), method, atypes)
     end
     return ccall(:jl_specializations_get_linfo, Ref{MethodInstance}, (Any, Any, Any), method, atypes, sparams)
 end
 
 function specialize_method(match::MethodMatch; kwargs...)
     return specialize_method(match.method, match.spec_types, match.sparams; kwargs...)
+end
+
+function specialize_method_noinfer((; method, spec_types, sparams)::MethodMatch; kwargs...)
+    atypes = get_nospecialize_sig(method, spec_types, sparams)
+    return specialize_method(method, atypes, sparams; kwargs...)
 end
 
 # This function is used for computing alternate limit heuristics

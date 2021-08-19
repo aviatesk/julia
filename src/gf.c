@@ -2051,10 +2051,8 @@ JL_DLLEXPORT jl_value_t *jl_normalize_to_compilable_sig(jl_methtable_t *mt, jl_t
     intptr_t nspec = (mt == jl_type_type_mt || mt == jl_nonfunction_mt ? m->nargs + 1 : mt->max_args + 2);
     jl_compilation_sig(ti, env, m, nspec, &newparams);
     tt = (newparams ? jl_apply_tuple_type(newparams) : ti);
-    int is_compileable = ((jl_datatype_t*)ti)->isdispatchtuple ||
-        jl_isa_compileable_sig(tt, m);
     JL_GC_POP();
-    return is_compileable ? (jl_value_t*)tt : jl_nothing;
+    return (jl_value_t*)tt;
 }
 
 // compile-time method lookup
@@ -2098,9 +2096,7 @@ jl_method_instance_t *jl_get_specialization1(jl_tupletype_t *types JL_PROPAGATES
             }
             else {
                 tt = jl_normalize_to_compilable_sig(mt, ti, env, m);
-                if (tt != jl_nothing) {
-                    nf = jl_specializations_get_linfo(m, (jl_value_t*)tt, env);
-                }
+                nf = jl_specializations_get_linfo(m, (jl_value_t*)tt, env);
             }
         }
     }

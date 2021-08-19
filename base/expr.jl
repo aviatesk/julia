@@ -280,6 +280,16 @@ macro aggressive_constprop(ex)
 end
 
 """
+    @noinfer f(args...) = ...
+    @noinfer function f(args...)
+        ...
+    end
+"""
+macro noinfer(ex)
+    esc(isa(ex, Expr) ? pushmeta!(ex, :noinfer) : ex)
+end
+
+"""
     @propagate_inbounds
 
 Tells the compiler to inline a function while retaining the caller's inbounds context.

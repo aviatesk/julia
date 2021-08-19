@@ -278,6 +278,7 @@ typedef struct _jl_code_info_t {
     uint8_t propagate_inbounds;
     uint8_t pure;
     uint8_t aggressive_constprop;
+    uint8_t noinfer;
 } jl_code_info_t;
 
 // This type describes a single method definition, and stores data
@@ -326,6 +327,7 @@ typedef struct _jl_method_t {
     uint8_t pure;
     uint8_t is_for_opaque_closure;
     uint8_t aggressive_constprop;
+    uint8_t noinfer;
 
 // hidden fields:
     // lock for modifications to the method
