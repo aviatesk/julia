@@ -103,7 +103,28 @@ Check if `method` is eligible for inlining.
 """
 function is_inlineable(method::Method)
     isdefined(method, :source) || return false
-    return ccall(:jl_ir_flag_inlineable, Bool, (Any,), method.source)
+    return is_inlineable(method.source::Union{CodeInfo,Vector{UInt8}})
+end
+is_inlineable(src::Union{CodeInfo,Vector{UInt8}}) =
+    return ccall(:jl_ir_flag_inlineable, Bool, (Any,), src)
+
+set_inlineable!(src::CodeInfo)   = src.inlineable |= 0x01 << 3
+set_noinlineable!(src::CodeInfo) = src.inlineable &= ~(0x01 << 3)
+
+"""
+    is_declared_inline(method::Method) -> Bool
+
+Check if `method` is declared as `@inline`.
+"""
+function is_declared_inline(method::Method)
+    isdefined(method, :source) || return false
+    source = method.source
+    if isa(source, Vector{UInt8})
+        return source[1] & 1 << 2 ≠ 0
+    elseif isa(source, CodeInfo)
+        return source.inlineable & 1 << 1 ≠ 0
+    end
+    return false
 end
 
 """
@@ -117,9 +138,7 @@ function is_declared_noinline(method::Method)
     if isa(source, Vector{UInt8})
         return source[1] & 1 << 3 ≠ 0
     elseif isa(source, CodeInfo)
-        return _any(source.code) do @nospecialize stmt
-            isexpr(stmt, :meta) && stmt.args[1] === :noinline
-        end
+        return source.inlineable & 1 << 2 ≠ 0
     end
     return false
 end

@@ -705,11 +705,10 @@ JL_DLLEXPORT jl_array_t *jl_compress_ir(jl_method_t *m, jl_code_info_t *code)
     uint8_t flags = (code->aggressive_constprop << 5)
                   | (code->inferred << 4)
                   // `code->inlineable` requires a special treatment:
-                  // `code->inlineable == 0`: default
-                  // `code->inlineable == 1`: declared as `@inline`
-                  // `code->inlineable == 2`: declared as `@noinline`
-                  | ((code->inlineable == 2) << 3)
-                  | ((code->inlineable == 1) << 2)
+                  // `code->inlineable & 1 << 1`: declared as `@inline`
+                  // `code->inlineable & 1 << 2`: declared as `@noinline`
+                  | (!!(code->inlineable & (1 << 2)) << 3)
+                  | (!!(code->inlineable & (1 << 1)) << 2)
                   | (code->propagate_inbounds << 1)
                   | (code->pure << 0);
     write_uint8(s.s, flags);
@@ -795,7 +794,7 @@ JL_DLLEXPORT jl_code_info_t *jl_uncompress_ir(jl_method_t *m, jl_code_instance_t
     uint8_t flags = read_uint8(s.s);
     code->aggressive_constprop = !!(flags & (1 << 5));
     code->inferred = !!(flags & (1 << 4));
-    code->inlineable = !!(flags & (1 << 2));
+    // code->inlineable = !!(flags & (1 << 2));
     code->propagate_inbounds = !!(flags & (1 << 1));
     code->pure = !!(flags & (1 << 0));
 
@@ -859,7 +858,8 @@ JL_DLLEXPORT uint8_t jl_ir_flag_inferred(jl_array_t *data)
 JL_DLLEXPORT uint8_t jl_ir_flag_inlineable(jl_array_t *data)
 {
     if (jl_is_code_info(data))
-        return ((jl_code_info_t*)data)->inlineable;
+        return (((jl_code_info_t*)data)->inlineable & (1 << 1)) ||
+               (((jl_code_info_t*)data)->inlineable & (1 << 3));
     assert(jl_typeis(data, jl_array_uint8_type));
     uint8_t flags = ((uint8_t*)data->data)[0];
     return !!(flags & (1 << 2));

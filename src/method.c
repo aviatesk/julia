@@ -284,14 +284,14 @@ static void jl_code_info_set_ir(jl_code_info_t *li, jl_expr_t *ir)
                 if (ma == (jl_value_t*)pure_sym)
                     li->pure = 1;
                 else if (ma == (jl_value_t*)inline_sym)
-                    li->inlineable = 1;
+                    li->inlineable |= 1 << 1;
                 else if (ma == (jl_value_t*)propagate_inbounds_sym)
                     li->propagate_inbounds = 1;
                 else if (ma == (jl_value_t*)aggressive_constprop_sym)
                     li->aggressive_constprop = 1;
                 else {
                     if (ma == (jl_value_t*)noinline_sym)
-                        li->inlineable = 2;
+                        li->inlineable |= 1 << 2;
                     jl_array_ptr_set(meta, ins++, ma);
                 }
             }

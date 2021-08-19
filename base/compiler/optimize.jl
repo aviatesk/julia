@@ -31,11 +31,11 @@ end
 function default_inlining_policy(@nospecialize(src))
     if isa(src, CodeInfo) || isa(src, Vector{UInt8})
         src_inferred = ccall(:jl_ir_flag_inferred, Bool, (Any,), src)
-        src_inlineable = ccall(:jl_ir_flag_inlineable, Bool, (Any,), src)
+        src_inlineable = is_inlineable(src)
         return src_inferred && src_inlineable ? src : nothing
     end
     if isa(src, OptimizationState) && isdefined(src, :ir)
-        return src.src.inlineable ? src.ir : nothing
+        return is_inlineable(src.src) ? src.ir : nothing
     end
     return nothing
 end
@@ -237,7 +237,7 @@ function finish(interp::AbstractInterpreter, opt::OptimizationState, params::Opt
             if !(isa(result, Const) && !is_inlineable_constant(result.val))
                 opt.const_api = true
             end
-            force_noinline || (src.inlineable = true)
+            force_noinline || set_inlineable!(src)
         end
     end
 
@@ -258,25 +258,27 @@ function finish(interp::AbstractInterpreter, opt::OptimizationState, params::Opt
         else
             force_noinline = true
         end
-        if !src.inlineable && result === Union{}
+        if !is_inlineable(src) && result === Union{}
             force_noinline = true
         end
     end
     if force_noinline
-        src.inlineable = false
+        set_noinlineable!(src)
     elseif isa(def, Method)
-        if src.inlineable && isdispatchtuple(specTypes)
+        if is_inlineable(src) && isdispatchtuple(specTypes)
             # obey @inline declaration if a dispatch barrier would not help
         else
             bonus = 0
             if result ⊑ Tuple && !isconcretetype(widenconst(result))
                 bonus = params.inline_tupleret_bonus
             end
-            if src.inlineable
+            if is_inlineable(src)
                 # For functions declared @inline, increase the cost threshold 20x
                 bonus += params.inline_cost_threshold*19
             end
-            src.inlineable = isinlineable(def, opt, params, union_penalties, bonus)
+            if isinlineable(def, opt, params, union_penalties, bonus)
+                set_inlineable!(src)
+            end
         end
     end
 
