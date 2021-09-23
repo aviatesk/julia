@@ -272,8 +272,12 @@ function type_more_complex(@nospecialize(t), @nospecialize(c), sources::SimpleVe
     return true
 end
 
-union_count_abstract(x::Union) = union_count_abstract(x.a) + union_count_abstract(x.b)
-union_count_abstract(@nospecialize(x)) = !isdispatchelem(x)
+function union_count_abstract(@nospecialize x)
+    if isa(x, Union)
+        return (union_count_abstract(x.a) + union_count_abstract(x.b))::Int
+    end
+    return isdispatchelem(x) ? 0 : 1
+end
 
 function issimpleenoughtype(@nospecialize t)
     t = ignorelimited(t)
@@ -421,8 +425,8 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
     # collect the list of types from past tmerge calls returning Union
     # and then reduce over that list
     types = Any[]
-    _uniontypes(typea, types)
-    _uniontypes(typeb, types)
+    _uniontypes!(typea, types)
+    _uniontypes!(typeb, types)
     typenames = Vector{Core.TypeName}(undef, length(types))
     for i in 1:length(types)
         # check that we will be able to analyze (and simplify) everything

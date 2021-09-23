@@ -165,18 +165,23 @@ function tvar_extent(@nospecialize t)
     return t
 end
 
-_typename(@nospecialize a) = Union{}
-_typename(a::TypeVar) = Core.TypeName
-function _typename(a::Union)
-    ta = _typename(a.a)
-    tb = _typename(a.b)
-    ta === tb && return ta # same type-name
-    (ta === Union{} || tb === Union{}) && return Union{} # threw an error
-    (ta isa Const && tb isa Const) && return Union{} # will throw an error (different type-names)
-    return Core.TypeName # uncertain result
+function _typename(@nospecialize x)
+    if isa(x, DataType)
+        return Const(x.name)
+    elseif isa(x, Union)
+        ta = _typename(x.a)
+        tb = _typename(x.b)
+        ta === tb && return ta # same type-name
+        (ta === Union{} || tb === Union{}) && return Union{} # threw an error
+        (ta isa Const && tb isa Const) && return Union{} # will throw an error (different type-names)
+        return Core.TypeName # uncertain result
+    elseif isa(x, UnionAll)
+        return _typename(x.body)
+    elseif isa(x, TypeVar)
+        return Core.TypeName
+    end
+    return Union{}
 end
-_typename(union::UnionAll) = _typename(union.body)
-_typename(a::DataType) = Const(a.name)
 
 function tuple_tail_elem(@nospecialize(init), ct::Vector{Any})
     t = init
@@ -244,20 +249,23 @@ end
 
 # unioncomplexity estimates the number of calls to `tmerge` to obtain the given type by
 # counting the Union instances, taking also into account those hidden in a Tuple or UnionAll
-function unioncomplexity(u::Union)
-    return unioncomplexity(u.a)::Int + unioncomplexity(u.b)::Int + 1
-end
-function unioncomplexity(t::DataType)
-    t.name === Tuple.name || isvarargtype(t) || return 0
-    c = 0
-    for ti in t.parameters
-        c = max(c, unioncomplexity(ti)::Int)
+function unioncomplexity(@nospecialize x)
+    if isa(x, Union)
+        return unioncomplexity(x.a)::Int + unioncomplexity(x.b)::Int + 1
+    elseif isa(x, UnionAll)
+        return max(unioncomplexity(x.body)::Int, unioncomplexity(x.var.ub)::Int)
+    elseif isa(x, DataType)
+        x.name === Tuple.name || isvarargtype(x) || return 0
+        c = 0
+        for t in x.parameters
+            c = max(c, unioncomplexity(t)::Int)
+        end
+        return c
+    elseif isa(x, Core.TypeofVararg)
+        return isdefined(x, :T) ? unioncomplexity(x.T)::Int : 0
     end
-    return c
+    return 0
 end
-unioncomplexity(u::UnionAll) = max(unioncomplexity(u.body)::Int, unioncomplexity(u.var.ub)::Int)
-unioncomplexity(t::Core.TypeofVararg) = isdefined(t, :T) ? unioncomplexity(t.T)::Int : 0
-unioncomplexity(@nospecialize(x)) = 0
 
 function improvable_via_constant_propagation(@nospecialize(t))
     if isconcretetype(t) && t <: Tuple

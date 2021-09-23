@@ -883,12 +883,25 @@ hasgenerator(m::Core.MethodInstance) = hasgenerator(m.def::Method)
 
 # low-level method lookup functions used by the compiler
 
-unionlen(x::Union) = unionlen(x.a) + unionlen(x.b)
-unionlen(@nospecialize(x)) = 1
+function unionlen(@nospecialize x)
+    if isa(x, Union)
+        return unionlen(x.a) + unionlen(x.b)
+    else
+        return 1
+    end
+end
 
-_uniontypes(x::Union, ts) = (_uniontypes(x.a,ts); _uniontypes(x.b,ts); ts)
-_uniontypes(@nospecialize(x), ts) = (push!(ts, x); ts)
-uniontypes(@nospecialize(x)) = _uniontypes(x, Any[])
+uniontypes(@nospecialize(x)) = _uniontypes!(x, Any[])
+function _uniontypes!(@nospecialize(x), ts::Array{Any,1})
+    if isa(x, Union)
+        _uniontypes!(x.a, ts)
+        _uniontypes!(x.b, ts)
+        return ts
+    else
+        push!(ts, x)
+        return ts
+    end
+end
 
 function _methods(@nospecialize(f), @nospecialize(t), lim::Int, world::UInt)
     tt = signature_type(f, t)

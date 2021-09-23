@@ -141,13 +141,21 @@ is_same_conditionals(a::InterConditional, b::InterConditional) = a.slot === b.sl
 
 is_lattice_bool(@nospecialize(typ)) = typ !== Bottom && typ ⊑ Bool
 
-maybe_extract_const_bool(c::Const) = (val = c.val; isa(val, Bool)) ? val : nothing
-function maybe_extract_const_bool(c::AnyConditional)
-    (c.vtype === Bottom && !(c.elsetype === Bottom)) && return false
-    (c.elsetype === Bottom && !(c.vtype === Bottom)) && return true
-    nothing
+function maybe_extract_const_bool(@nospecialize x)
+    if isa(x, Const)
+        val = x.val
+        return isa(val, Bool) ? val : nothing
+    elseif isa(x, AnyConditional)
+        if x.vtype === Bottom && x.elsetype !== Bottom
+            return false
+        elseif x.elsetype === Bottom && x.vtype !== Bottom
+            return true
+        else
+            return nothing
+        end
+    end
+    return nothing
 end
-maybe_extract_const_bool(@nospecialize c) = nothing
 
 function ⊑(@nospecialize(a), @nospecialize(b))
     if isa(b, LimitedAccuracy)
@@ -173,7 +181,11 @@ function ⊑(@nospecialize(a), @nospecialize(b))
     @assert !isa(b, TypeVar) "invalid lattice item"
     if isa(a, AnyConditional)
         if isa(b, AnyConditional)
-            return issubconditional(a, b)
+            if isa(a, Conditional) # avoid dynamic dispatch
+                return issubconditional(a::Conditional, b::Conditional)
+            else
+                return issubconditional(a::InterConditional, b::InterConditional)
+            end
         elseif isa(b, Const) && isa(b.val, Bool)
             return maybe_extract_const_bool(a) === b.val
         end
@@ -277,25 +289,37 @@ function is_lattice_equal(@nospecialize(a), @nospecialize(b))
     return a ⊑ b && b ⊑ a
 end
 
-widenconst(c::AnyConditional) = Bool
-function widenconst(c::Const)
-    if isa(c.val, Type)
-        if isvarargtype(c.val)
-            return Type
+function widenconst(@nospecialize x)
+    if isa(x, Type)
+        return x
+    elseif isa(x, Const)
+        val = x.val
+        if isa(val, Type)
+            if isvarargtype(val)
+                return Type
+            end
+            return Type{val}
         end
-        return Type{c.val}
-    else
-        return typeof(c.val)
+        return typeof(val)
+    elseif isa(x, PartialStruct)
+        return x.typ
+    elseif isa(x, AnyConditional)
+        return Bool
+    elseif isa(x, TypeVar)
+        return x
+    elseif isa(x, Core.TypeofVararg)
+        return x
+    elseif isa(x, PartialOpaque)
+        return x.typ
+    elseif isa(x, PartialTypeVar)
+        return TypeVar
+    elseif isa(x, MaybeUndef)
+        return widenconst(x.typ)
+    elseif isa(x, LimitedAccuracy)
+        error("unhandled LimitedAccuracy")
     end
+    error("unknown lattice element")
 end
-widenconst(m::MaybeUndef) = widenconst(m.typ)
-widenconst(c::PartialTypeVar) = TypeVar
-widenconst(t::PartialStruct) = t.typ
-widenconst(t::PartialOpaque) = t.typ
-widenconst(t::Type) = t
-widenconst(t::TypeVar) = t
-widenconst(t::Core.TypeofVararg) = t
-widenconst(t::LimitedAccuracy) = error("unhandled LimitedAccuracy")
 
 issubstate(a::VarState, b::VarState) = (a.typ ⊑ b.typ && a.undef <= b.undef)
 
@@ -311,23 +335,33 @@ end
 @inline tchanged(@nospecialize(n), @nospecialize(o)) = o === NOT_FOUND || (n !== NOT_FOUND && !(n ⊑ o))
 @inline schanged(@nospecialize(n), @nospecialize(o)) = (n !== o) && (o === NOT_FOUND || (n !== NOT_FOUND && !issubstate(n::VarState, o::VarState)))
 
-widenconditional(@nospecialize typ) = typ
-function widenconditional(typ::AnyConditional)
-    if typ.vtype === Union{}
-        return Const(false)
-    elseif typ.elsetype === Union{}
-        return Const(true)
-    else
+function widenconditional(@nospecialize typ)
+    if isa(typ, AnyConditional)
+        if typ.vtype === Union{}
+            return Const(false)
+        elseif typ.elsetype === Union{}
+            return Const(true)
+        end
         return Bool
+    elseif isa(typ, LimitedAccuracy)
+        error("unhandled LimitedAccuracy")
     end
+    return typ
 end
-widenconditional(t::LimitedAccuracy) = error("unhandled LimitedAccuracy")
 
-widenwrappedconditional(@nospecialize(typ))   = widenconditional(typ)
-widenwrappedconditional(typ::LimitedAccuracy) = LimitedAccuracy(widenconditional(typ.typ), typ.causes)
+function widenwrappedconditional(@nospecialize typ)
+    if isa(typ, LimitedAccuracy)
+        return LimitedAccuracy(widenconditional(typ.typ), typ.causes)
+    end
+    return widenconditional(typ)
+end
 
-ignorelimited(@nospecialize typ) = typ
-ignorelimited(typ::LimitedAccuracy) = typ.typ
+function ignorelimited(@nospecialize typ)
+    if isa(typ, LimitedAccuracy)
+        return typ.typ
+    end
+    return typ
+end
 
 function stupdate!(state::Nothing, changes::StateUpdate)
     newst = copy(changes.state)
