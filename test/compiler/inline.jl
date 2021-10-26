@@ -784,3 +784,35 @@ let
     invoke(xs) = validate_unionsplit_inlining(true, xs[1])
     @test invoke(Any[10]) === false
 end
+
+# test union-split, non-dispatchtuple callsite inlining
+
+@constprop :none @noinline test_unionsplit_nondispatchtuple(@nospecialize t) =
+    isa(t, DataType) && t.name === Type.body.name
+@constprop :none @noinline test_unionsplit_nondispatchtuple(::Integer) = throw("logic error")
+let
+    src = code_typed1((Any,)) do x
+        test_unionsplit_nondispatchtuple(x)
+    end
+    @test any(src.code) do @nospecialize x
+        iscall((src, test_unionsplit_nondispatchtuple), x)
+    end
+    @test any(src.code) do @nospecialize x
+        isinvoke(:test_unionsplit_nondispatchtuple, x)
+    end
+end
+
+@constprop :aggressive @noinline test_unionsplit_nondispatchtuple(c, @nospecialize t) =
+    c && isa(t, DataType) && t.name === Type.body.name
+@constprop :aggressive @noinline test_unionsplit_nondispatchtuple(c, ::Integer) = c && throw("logic error")
+let
+    src = code_typed1((Any,)) do x
+        test_unionsplit_nondispatchtuple(true, x)
+    end
+    @test any(src.code) do @nospecialize x
+        iscall((src, test_unionsplit_nondispatchtuple), x)
+    end
+    @test any(src.code) do @nospecialize x
+        isinvoke(:test_unionsplit_nondispatchtuple, x)
+    end
+end
