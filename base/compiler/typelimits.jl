@@ -303,11 +303,18 @@ function issimpleenoughtype(@nospecialize t)
            unioncomplexity(t) <= MAX_TYPEUNION_COMPLEXITY
 end
 
-# pick a wider type that contains both typea and typeb,
-# with some limits on how "large" it can get,
-# but without losing too much precision in common cases
-# and also trying to be mostly associative and commutative
-function tmerge(@nospecialize(typea), @nospecialize(typeb))
+"""
+    a ⊔ b -> x
+
+A widening operator of the type inference lattice.
+Since the type inference lattice has infinite height, `x` overapproximates the join of `a`
+and `b` in order to ensure the convergence of inference, i.e., it picks a wider type that
+contains both `a` and `b`, with some limits on how "large" it can get, but without losing
+too much precision in common cases.
+`⊔` also tries to be mostly asociative and commutative.
+Note that this operation is often denoted as `∇` in the literature of abstract interpretation.
+"""
+@nospecialize(typea) ⊔ @nospecialize(typeb) = begin
     typea === Union{} && return typeb
     typeb === Union{} && return typea
     suba = typea ⊑ typeb
@@ -328,15 +335,15 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
         else
             causes = union!(copy(typea.causes), typeb.causes)
         end
-        return LimitedAccuracy(tmerge(typea.typ, typeb.typ), causes)
+        return LimitedAccuracy(typea.typ ⊔ typeb.typ, causes)
     elseif isa(typea, LimitedAccuracy)
-        return LimitedAccuracy(tmerge(typea.typ, typeb), typea.causes)
+        return LimitedAccuracy(typea.typ ⊔ typeb, typea.causes)
     elseif isa(typeb, LimitedAccuracy)
-        return LimitedAccuracy(tmerge(typea, typeb.typ), typeb.causes)
+        return LimitedAccuracy(typea ⊔ typeb.typ, typeb.causes)
     end
     # type-lattice for MaybeUndef wrapper
     if isa(typea, MaybeUndef) || isa(typeb, MaybeUndef)
-        return MaybeUndef(tmerge(
+        return MaybeUndef(⊔(
             isa(typea, MaybeUndef) ? typea.typ : typea,
             isa(typeb, MaybeUndef) ? typeb.typ : typeb))
     end
@@ -357,8 +364,8 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
     end
     if isa(typea, Conditional) && isa(typeb, Conditional)
         if is_same_conditionals(typea, typeb)
-            vtype = tmerge(typea.vtype, typeb.vtype)
-            elsetype = tmerge(typea.elsetype, typeb.elsetype)
+            vtype = typea.vtype ⊔ typeb.vtype
+            elsetype = ⊔(typea.elsetype, typeb.elsetype)
             if vtype != elsetype
                 return Conditional(typea.var, vtype, elsetype)
             end
@@ -386,8 +393,8 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
     end
     if isa(typea, InterConditional) && isa(typeb, InterConditional)
         if is_same_conditionals(typea, typeb)
-            vtype = tmerge(typea.vtype, typeb.vtype)
-            elsetype = tmerge(typea.elsetype, typeb.elsetype)
+            vtype = typea.vtype ⊔ typeb.vtype
+            elsetype = typea.elsetype ⊔ typeb.elsetype
             if vtype != elsetype
                 return InterConditional(typea.slot, vtype, elsetype)
             end
@@ -413,8 +420,7 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
         fields = Vector{Any}(undef, type_nfields)
         anyconst = false
         for i = 1:type_nfields
-            fields[i] = tmerge(getfield_tfunc(typea, Const(i)),
-                               getfield_tfunc(typeb, Const(i)))
+            fields[i] = getfield_tfunc(typea, Const(i)) ⊔ getfield_tfunc(typeb, Const(i))
             anyconst |= has_nontrivial_const_info(fields[i])
         end
         return anyconst ? PartialStruct(widenconst(typea), fields) : widenconst(typea)
@@ -425,7 +431,7 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
              typea.parent === typeb.parent)
             return widenconst(typea)
         end
-        return PartialOpaque(typea.typ, tmerge(typea.env, typeb.env),
+        return PartialOpaque(typea.typ, typea.env ⊔ typeb.env,
             typea.isva, typea.parent, typea.source)
     end
     # no special type-inference lattice, join the types
@@ -439,7 +445,7 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
     if (isconcretetype(typea) || isType(typea)) && (isconcretetype(typeb) || isType(typeb))
         return Union{typea, typeb}
     end
-    # collect the list of types from past tmerge calls returning Union
+    # collect the list of types from past ⊔ calls returning Union
     # and then reduce over that list
     types = Any[]
     _uniontypes(typea, types)
@@ -458,7 +464,7 @@ function tmerge(@nospecialize(typea), @nospecialize(typeb))
         return u
     end
     # see if any of the union elements have the same TypeName
-    # in which case, simplify this tmerge by replacing it with
+    # in which case, simplify this ⊔ by replacing it with
     # the widest possible version of itself (the wrapper)
     for i in 1:length(types)
         ti = types[i]
@@ -604,9 +610,14 @@ function tuplemerge(a::DataType, b::DataType)
     return Tuple{p...}
 end
 
-# compute typeintersect over the extended inference lattice
-# where v is in the extended lattice, and t is a Type
-function tmeet(@nospecialize(v), @nospecialize(t))
+"""
+    v ⊓ t::Type -> x
+
+`⊓` computes `typeintersect` over the type inference lattice.
+Note that this operation is not the valid "meet" operation,
+since `v` is in the extended lattice while `t` needs to be a `Type`.
+"""
+@nospecialize(v) ⊓ @nospecialize(t#=::Type=#) = begin
     if isa(v, Const)
         if !has_free_typevars(t) && !isa(v.val, t)
             return Bottom
@@ -627,7 +638,7 @@ function tmeet(@nospecialize(v), @nospecialize(t))
             if isvarargtype(vfi)
                 new_fields[i] = vfi
             else
-                new_fields[i] = tmeet(vfi, widenconst(getfield_tfunc(t, Const(i))))
+                new_fields[i] = vfi ⊓ widenconst(getfield_tfunc(t, Const(i)))
                 if new_fields[i] === Bottom
                     return Bottom
                 end
@@ -644,3 +655,5 @@ function tmeet(@nospecialize(v), @nospecialize(t))
     valid_as_lattice(ti) || return Bottom
     return ti
 end
+
+const tmerge, tmeet = ⊔, ⊓ # for external consumers

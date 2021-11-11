@@ -99,7 +99,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
                 if const_result !== nothing
                     any_const_result = true
                 end
-                this_rt = tmerge(this_rt, rt)
+                this_rt = this_rt ⊔ rt
                 if bail_out_call(interp, this_rt, sv)
                     break
                 end
@@ -130,7 +130,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
         this_rt = widenwrappedconditional(this_rt)
         @assert !(this_conditional isa Conditional) "invalid lattice element returned from inter-procedural context"
         seen += 1
-        rettype = tmerge(rettype, this_rt)
+        rettype = rettype ⊔ this_rt
         if this_conditional !== Bottom && is_lattice_bool(rettype) && fargs !== nothing
             if conditionals === nothing
                 conditionals = Any[Bottom for _ in 1:length(argtypes)],
@@ -138,8 +138,8 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
             end
             for i = 1:length(argtypes)
                 cnd = conditional_argtype(this_conditional, sig, argtypes, i)
-                conditionals[1][i] = tmerge(conditionals[1][i], cnd.vtype)
-                conditionals[2][i] = tmerge(conditionals[2][i], cnd.elsetype)
+                conditionals[1][i] = conditionals[1][i] ⊔ cnd.vtype
+                conditionals[2][i] = conditionals[2][i] ⊔ cnd.elsetype
             end
         end
         if bail_out_call(interp, rettype, sv)
@@ -284,7 +284,7 @@ In such cases `maybecondinfo` should be either of:
 - `maybecondinfo::Tuple{Vector{Any},Vector{Any}}`: precomputed argument type refinement information
 - method call signature tuple type
 When we deal with multiple `MethodMatch`es, it's better to precompute `maybecondinfo` by
-`tmerge`ing argument signature type of each method call.
+`⊔`ing argument signature type of each method call.
 """
 function from_interprocedural!(@nospecialize(rt), sv::InferenceState, arginfo::ArgInfo, @nospecialize(maybecondinfo))
     rt = collect_limitations!(rt, sv)
@@ -336,14 +336,14 @@ function from_interconditional(@nospecialize(typ), (; fargs, argtypes)::ArgInfo,
             elseif new_vtype ⊑ vtype
                 vtype = new_vtype
             else
-                vtype = tmeet(vtype, widenconst(new_vtype))
+                vtype = vtype ⊓ widenconst(new_vtype)
             end
             if condval === true
                 elsetype = Bottom
             elseif new_elsetype ⊑ elsetype
                 elsetype = new_elsetype
             else
-                elsetype = tmeet(elsetype, widenconst(new_elsetype))
+                elsetype = elsetype ⊓ widenconst(new_elsetype)
             end
             if (slot > 0 || condval !== false) && vtype ⋤ old
                 slot = id
@@ -369,7 +369,7 @@ function conditional_argtype(@nospecialize(rt), @nospecialize(sig), argtypes::Ve
     if isa(rt, InterConditional) && rt.slot == i
         return rt
     else
-        vtype = elsetype = tmeet(argtypes[i], fieldtype(sig, i))
+        vtype = elsetype = argtypes[i] ⊓ fieldtype(sig, i)
         condval = maybe_extract_const_bool(rt)
         condval === true && (elsetype = Bottom)
         condval === false && (vtype = Bottom)
@@ -879,7 +879,7 @@ function precise_container_type(interp::AbstractInterpreter, @nospecialize(itft)
             tps = (t::DataType).parameters
             _all(valid_as_lattice, tps) || continue
             for j in 1:ltp
-                result[j] = tmerge(result[j], rewrap_unionall(tps[j], tti0))
+                result[j] = result[j] ⊔ rewrap_unionall(tps[j], tti0)
             end
         end
         return result, nothing
@@ -982,8 +982,8 @@ function abstract_iteration(interp::AbstractInterpreter, @nospecialize(itft), @n
             end
             break
         end
-        valtype = tmerge(valtype, nounion.parameters[1])
-        statetype = tmerge(statetype, nounion.parameters[2])
+        valtype = valtype ⊔ nounion.parameters[1]
+        statetype = statetype ⊔ nounion.parameters[2]
         stateordonet = abstract_call_known(interp, iteratef, ArgInfo(nothing, Any[Const(iteratef), itertype, statetype]), sv).rt
         stateordonet_widened = widenconst(stateordonet)
     end
@@ -1027,14 +1027,14 @@ function abstract_apply(interp::AbstractInterpreter, argtypes::Vector{Any}, sv::
                 cti = cti_info[1]::Vector{Any}
                 info = cti_info[2]::MaybeAbstractIterationInfo
                 # We can't represent a repeating sequence of the same types,
-                # so tmerge everything together to get one type that represents
+                # so ⊔ everything together to get one type that represents
                 # everything.
                 argt = cti[end]
                 if isvarargtype(argt)
                     argt = unwrapva(argt)
                 end
                 for i in 1:(length(cti)-1)
-                    argt = tmerge(argt, cti[i])
+                    argt = argt ⊔ cti[i]
                 end
                 cti = Any[Vararg{argt}]
             end
@@ -1075,7 +1075,7 @@ function abstract_apply(interp::AbstractInterpreter, argtypes::Vector{Any}, sv::
         end
         call = abstract_call(interp, ArgInfo(nothing, ct), sv, max_methods)
         push!(retinfos, ApplyCallInfo(call.info, arginfo))
-        res = tmerge(res, call.rt)
+        res = res ⊔ call.rt
         if bail_out_apply(interp, res, sv)
             if i != length(ctypes)
                 # No point carrying forward the info, we're not gonna inline it anyway
@@ -1155,12 +1155,12 @@ function abstract_call_builtin(interp::AbstractInterpreter, f::Builtin, (; fargs
                 a = ssa_def_slot(fargs[3], sv)
                 b = ssa_def_slot(fargs[4], sv)
                 if isa(a, SlotNumber) && slot_id(cnd.var) == slot_id(a)
-                    tx = (cnd.vtype ⊑ tx ? cnd.vtype : tmeet(tx, widenconst(cnd.vtype)))
+                    tx = cnd.vtype ⊑ tx ? cnd.vtype : tx ⊓ widenconst(cnd.vtype)
                 end
                 if isa(b, SlotNumber) && slot_id(cnd.var) == slot_id(b)
-                    ty = (cnd.elsetype ⊑ ty ? cnd.elsetype : tmeet(ty, widenconst(cnd.elsetype)))
+                    ty = cnd.elsetype ⊑ ty ? cnd.elsetype : ty ⊓ widenconst(cnd.elsetype)
                 end
-                return tmerge(tx, ty)
+                return tx ⊔ ty
             end
         end
     end
@@ -1243,13 +1243,13 @@ function abstract_call_builtin(interp::AbstractInterpreter, f::Builtin, (; fargs
                     cnd = isdefined_tfunc(ty, fld)
                     if isa(cnd, Const)
                         if cnd.val::Bool
-                            vtype = tmerge(vtype, ty)
+                            vtype = vtype ⊔ ty
                         else
-                            elsetype = tmerge(elsetype, ty)
+                            elsetype = elsetype ⊔ ty
                         end
                     else
-                        vtype = tmerge(vtype, ty)
-                        elsetype = tmerge(elsetype, ty)
+                        vtype = vtype ⊔ ty
+                        elsetype = elsetype ⊔ ty
                     end
                 end
                 return Conditional(a, vtype, elsetype)
@@ -1610,7 +1610,7 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
         if isa(e, PhiNode)
             rt = Union{}
             for val in e.values
-                rt = tmerge(rt, abstract_eval_special_value(interp, val, vtypes, sv))
+                rt = rt ⊔ abstract_eval_special_value(interp, val, vtypes, sv)
             end
             return rt
         end
@@ -1638,7 +1638,7 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
             for i = 2:length(e.args)
                 at = widenconditional(abstract_eval_value(interp, e.args[i], vtypes, sv))
                 ft = fieldtype(t, i-1)
-                at = tmeet(at, ft)
+                at = at ⊓ ft
                 if at === Bottom
                     t = Bottom
                     @goto t_computed
@@ -1785,7 +1785,7 @@ end
 function widenreturn(@nospecialize(rt), @nospecialize(bestguess), nslots::Int, slottypes::Vector{Any}, changes::VarTable)
     if !(bestguess ⊑ Bool) || bestguess === Bool
         # give up inter-procedural constraint back-propagation
-        # when tmerge would widen the result anyways (as an optimization)
+        # when ⊔ would widen the result anyways (as an optimization)
         rt = widenconditional(rt)
     else
         if isa(rt, Conditional)
@@ -1939,7 +1939,7 @@ function typeinf_local(interp::AbstractInterpreter, frame::InferenceState)
                 bestguess = frame.bestguess
                 rt = abstract_eval_value(interp, stmt.val, changes, frame)
                 rt = widenreturn(rt, bestguess, nslots, slottypes, changes)
-                # narrow representation of bestguess slightly to prepare for tmerge with rt
+                # narrow representation of bestguess slightly to prepare for ⊔ with rt
                 if rt isa InterConditional && bestguess isa Const
                     let slot_id = rt.slot
                         old_id_type = slottypes[slot_id]
@@ -1960,7 +1960,7 @@ function typeinf_local(interp::AbstractInterpreter, frame::InferenceState)
                 end
                 if tchanged(rt, bestguess)
                     # new (wider) return type for frame
-                    bestguess = tmerge(bestguess, rt)
+                    bestguess = bestguess ⊔ rt
                     # TODO: if bestguess isa InterConditional && !interesting(bestguess); bestguess = widenconditional(bestguess); end
                     frame.bestguess = bestguess
                     for (caller, caller_pc) in frame.cycle_backedges
@@ -2082,8 +2082,8 @@ function conditional_changes(changes::VarTable, @nospecialize(typ), var::SlotNum
     # approximate test for `typ ∩ oldtyp` being better than `oldtyp`
     # since we probably formed these types with `typesubstract`, the comparison is likely simple
     if ignorelimited(typ) ⊑ ignorelimited(oldtyp)
-        # typ is better unlimited, but we may still need to compute the tmeet with the limit "causes" since we ignored those in the comparison
-        oldtyp isa LimitedAccuracy && (typ = tmerge(typ, LimitedAccuracy(Bottom, oldtyp.causes)))
+        # typ is better unlimited, but we may still need to compute the ⊓ with the limit "causes" since we ignored those in the comparison
+        oldtyp isa LimitedAccuracy && (typ = typ ⊔ LimitedAccuracy(Bottom, oldtyp.causes))
         return StateUpdate(var, VarState(typ, false), changes, true)
     end
     return changes

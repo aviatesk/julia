@@ -199,7 +199,7 @@ function tuple_tail_elem(@nospecialize(init), ct::Vector{Any})
     t = init
     for x in ct
         # FIXME: this is broken: it violates subtyping relations and creates invalid types with free typevars
-        t = tmerge(t, tvar_extent(unwrapva(x)))
+        t = t ⊔ tvar_extent(unwrapva(x))
     end
     return Vararg{widenconst(t)}
 end
@@ -259,7 +259,7 @@ function _switchtupleunion(t::Vector{Any}, i::Int, tunion::Vector{Any}, @nospeci
     return tunion
 end
 
-# unioncomplexity estimates the number of calls to `tmerge` to obtain the given type by
+# unioncomplexity estimates the number of calls to `⊔` to obtain the given type by
 # counting the Union instances, taking also into account those hidden in a Tuple or UnionAll
 function unioncomplexity(u::Union)
     return unioncomplexity(u.a)::Int + unioncomplexity(u.b)::Int + 1

@@ -36,8 +36,8 @@ function matching_cache_argtypes(
             if slotid !== nothing
                 # using union-split signature, we may be able to narrow down `Conditional`
                 sigt = widenconst(slotid > nargs ? argtypes[slotid] : cache_argtypes[slotid])
-                vtype = tmeet(cnd.vtype, sigt)
-                elsetype = tmeet(cnd.elsetype, sigt)
+                vtype = cnd.vtype ⊓ sigt
+                elsetype = cnd.elsetype ⊓ sigt
                 if vtype === Bottom && elsetype === Bottom
                     # we accidentally proved this method match is impossible
                     # TODO bail out here immediately rather than just propagating Bottom ?

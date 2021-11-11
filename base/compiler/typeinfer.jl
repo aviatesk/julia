@@ -593,7 +593,7 @@ function record_slot_assign!(sv::InferenceState)
                     elseif otherTy === Any
                         slottypes[id] = Any
                     else
-                        slottypes[id] = tmerge(otherTy, vt)
+                        slottypes[id] = otherTy ⊔ vt
                     end
                 end
             end
@@ -978,7 +978,7 @@ function _return_type(interp::AbstractInterpreter, @nospecialize(f), @nospeciali
             match = match::MethodMatch
             ty = typeinf_type(interp, match.method, match.spec_types, match.sparams)
             ty === nothing && return Any
-            rt = tmerge(rt, ty)
+            rt = rt ⊔ ty
             rt === Any && break
         end
     end

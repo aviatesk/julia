@@ -229,7 +229,7 @@ function ifelse_tfunc(@nospecialize(cnd), @nospecialize(x), @nospecialize(y))
     elseif !(Bool ⊑ cnd)
         return Bottom
     end
-    return tmerge(x, y)
+    return x ⊔ y
 end
 add_tfunc(Core.ifelse, 3, 3, ifelse_tfunc, 1)
 
@@ -316,7 +316,7 @@ function isdefined_tfunc(@nospecialize(arg1), @nospecialize(sym))
     elseif isa(a1, Union)
         t = Bottom
         for u in uniontypes(a1)
-            t = tmerge(t, isdefined_tfunc(u, sym))
+            t = t ⊔ isdefined_tfunc(u, sym)
         end
         return t
     end
@@ -383,8 +383,8 @@ function sizeof_tfunc(@nospecialize(x),)
     isconstType(x) && return _const_sizeof(x.parameters[1])
     xu = unwrap_unionall(x)
     if isa(xu, Union)
-        return tmerge(sizeof_tfunc(rewrap_unionall(xu.a, x)),
-                      sizeof_tfunc(rewrap_unionall(xu.b, x)))
+        return ⊔(sizeof_tfunc(rewrap_unionall(xu.a, x)),
+                 sizeof_tfunc(rewrap_unionall(xu.b, x)))
     end
     # Core.sizeof operates on either a type or a value. First check which
     # case we're in.
@@ -421,7 +421,7 @@ function nfields_tfunc(@nospecialize(x))
     if isa(x, Union)
         na = nfields_tfunc(x.a)
         na === Int && return Int
-        return tmerge(na, nfields_tfunc(x.b))
+        return na ⊔ nfields_tfunc(x.b)
     end
     return Int
 end
@@ -590,7 +590,7 @@ add_tfunc(typeof, 1, 1, typeof_tfunc, 1)
 function typeassert_tfunc(@nospecialize(v), @nospecialize(t))
     t = instanceof_tfunc(t)[1]
     t === Any && return v
-    return tmeet(v, t)
+    return v ⊓ t
 end
 add_tfunc(typeassert, 2, 2, typeassert_tfunc, 4)
 
@@ -792,8 +792,8 @@ getfield_tfunc(s00, name, order, boundscheck) = (@nospecialize; getfield_tfunc(s
 function getfield_tfunc(@nospecialize(s00), @nospecialize(name))
     s = unwrap_unionall(s00)
     if isa(s, Union)
-        return tmerge(getfield_tfunc(rewrap_unionall(s.a, s00), name),
-                      getfield_tfunc(rewrap_unionall(s.b, s00), name))
+        return ⊔(getfield_tfunc(rewrap_unionall(s.a, s00), name),
+                 getfield_tfunc(rewrap_unionall(s.b, s00), name))
     elseif isa(s, Conditional)
         return Bottom # Bool has no fields
     elseif isa(s, Const) || isconstType(s)
@@ -904,7 +904,7 @@ function getfield_tfunc(@nospecialize(s00), @nospecialize(name))
         # union together types of all fields
         t = Bottom
         for _ft in ftypes
-            t = tmerge(t, rewrap_unionall(unwrapva(_ft), s00))
+            t = t ⊔ rewrap_unionall(unwrapva(_ft), s00)
             t === Any && break
         end
         return t
@@ -975,7 +975,7 @@ function abstract_modifyfield!(interp::AbstractInterpreter, argtypes::Vector{Any
         push!(sv.ssavalue_uses[sv.currpc], sv.currpc) # temporarily disable `call_result_unused` check for this call
         callinfo = abstract_call(interp, ArgInfo(nothing, Any[op, TF, v]), sv, #=max_methods=# 1)
         pop!(sv.ssavalue_uses[sv.currpc], sv.currpc)
-        TF2 = tmeet(callinfo.rt, widenconst(TF))
+        TF2 = callinfo.rt ⊓ widenconst(TF)
         if TF2 === Bottom
             RT = Bottom
         elseif isconcretetype(RT) && has_nontrivial_const_info(TF2) # isconcrete condition required to form a PartialStruct
@@ -1081,8 +1081,8 @@ function fieldtype_tfunc(@nospecialize(s0), @nospecialize(name))
 
     su = unwrap_unionall(s0)
     if isa(su, Union)
-        return tmerge(fieldtype_tfunc(rewrap_unionall(su.a, s0), name),
-                      fieldtype_tfunc(rewrap_unionall(su.b, s0), name))
+        return ⊔(fieldtype_tfunc(rewrap_unionall(su.a, s0), name),
+                 fieldtype_tfunc(rewrap_unionall(su.b, s0), name))
     end
 
     s, exact = instanceof_tfunc(s0)
@@ -1152,7 +1152,7 @@ function _fieldtype_tfunc(@nospecialize(s), exact::Bool, @nospecialize(name))
             else
                 ft1 = Const(ft1)
             end
-            t = tmerge(t, ft1)
+            t = t ⊔ ft1
             t === Any && break
         end
         return t

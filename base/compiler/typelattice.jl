@@ -141,7 +141,7 @@ end
 maybe_extract_const_bool(@nospecialize c) = nothing
 
 """
-    a ⊑ b -> Bool
+    a ⊑ b -> ord::Bool
 
 The non-strict partial order over the type inference lattice.
 """
@@ -238,7 +238,7 @@ The non-strict partial order over the type inference lattice.
 end
 
 """
-    a ⊏ b -> Bool
+    a ⊏ b -> ord::Bool
 
 The strict partial order over the type inference lattice.
 This is defined as the irreflexive kernel of `⊑`.
@@ -246,7 +246,7 @@ This is defined as the irreflexive kernel of `⊑`.
 @nospecialize(a) ⊏ @nospecialize(b) = a ⊑ b && !⊑(b, a)
 
 """
-    a ⋤ b -> Bool
+    a ⋤ b -> ord::Bool
 
 This order could be used as a slightly more efficient version of the strict order `⊏`,
 where we can safely assume `a ⊑ b` holds.
@@ -308,7 +308,7 @@ function smerge(sa::Union{NotFound,VarState}, sb::Union{NotFound,VarState})
     sb === NOT_FOUND && return sa
     issubstate(sa, sb) && return sb
     issubstate(sb, sa) && return sa
-    return VarState(tmerge(sa.typ, sb.typ), sa.undef | sb.undef)
+    return VarState(sa.typ ⊔ sb.typ, sa.undef | sb.undef)
 end
 
 @inline tchanged(@nospecialize(n), @nospecialize(o)) = o === NOT_FOUND || (n !== NOT_FOUND && !(n ⊑ o))
