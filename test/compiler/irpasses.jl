@@ -199,16 +199,44 @@ let src = code_typed1((Any,Any,Any)) do x, y, z
         x.args[2:end] == Any[#=x=# Core.Argument(2), #=y=# Core.Argument(3), #=y=# Core.Argument(4)]
     end
 end
-# FIXME our analysis isn't yet so powerful at this moment, e.g. it can't handle nested mutable objects
+
+# FIXME our analysis isn't yet so powerful at this moment: may be unable to handle nested objects well
+# OK: mutable(immutable(...)) case
+let src = code_typed1((Any,Any,Any)) do x, y, z
+        xyz = MutableXYZ(x, y, z)
+        t   = (xyz,)
+        v = t[1].x
+        v, v, v
+    end
+    @test !any(isnew, src.code)
+end
 let src = code_typed1((Any,Any,Any)) do x, y, z
         xyz = MutableXYZ(x, y, z)
         outer = ImmutableOuter(xyz, xyz, xyz)
         outer.x.x, outer.y.y, outer.z.z
     end
-    @test_broken !any(isnew, src.code)
+    @test !any(isnew, src.code)
+    @test any(src.code) do @nospecialize x
+        iscall((src, tuple), x) &&
+        x.args[2:end] == Any[#=x=# Core.Argument(2), #=y=# Core.Argument(3), #=y=# Core.Argument(4)]
+    end
 end
+let
+    simple_sroa(s) = broadcast(identity, Ref(s))
+    @allocated(simple_sroa("julia"))
+    @test @allocated(simple_sroa("julia")) == 0
+end
+# FIXME: immutable(mutable(...)) case
 let src = code_typed1((Any,Any,Any)) do x, y, z
         xyz = ImmutableXYZ(x, y, z)
+        outer = MutableOuter(xyz, xyz, xyz)
+        outer.x.x, outer.y.y, outer.z.z
+    end
+    @test_broken !any(isnew, src.code)
+end
+# FIXME: mutable(mutable(...)) case
+let src = code_typed1((Any,Any,Any)) do x, y, z
+        xyz = MutableXYZ(x, y, z)
         outer = MutableOuter(xyz, xyz, xyz)
         outer.x.x, outer.y.y, outer.z.z
     end
