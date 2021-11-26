@@ -594,7 +594,7 @@ its argument).
 In a case when all usages are fully eliminated, `struct` allocation may also be erased as
 a result of succeeding dead code elimination.
 """
-function sroa_pass!(ir::IRCode)
+function sroa_pass!(ir::IRCode, optional_opts::Bool = true)
     compact = IncrementalCompact(ir)
     defuses = nothing # will be initialized once we encounter mutability in order to reduce dynamic allocations
     lifting_cache = IdDict{Pair{AnySSAValue, Any}, AnySSAValue}()
@@ -665,16 +665,17 @@ function sroa_pass!(ir::IRCode)
                 compact[idx] = new_expr
             end
             continue
-        # TODO: This isn't the best place to put these
-        elseif is_known_call(stmt, typeassert, compact)
-            canonicalize_typeassert!(compact, idx, stmt)
-            continue
-        elseif is_known_call(stmt, (===), compact)
-            lift_comparison!(compact, idx, stmt, lifting_cache)
-            continue
-        # elseif is_known_call(stmt, isa, compact)
-            # TODO do a similar optimization as `lift_comparison!` for `===`
         else
+            if optional_opts
+                # TODO: This isn't the best place to put these
+                if is_known_call(stmt, typeassert, compact)
+                    canonicalize_typeassert!(compact, idx, stmt)
+                elseif is_known_call(stmt, (===), compact)
+                    lift_comparison!(compact, idx, stmt, lifting_cache)
+                # elseif is_known_call(stmt, isa, compact)
+                    # TODO do a similar optimization as `lift_comparison!` for `===`
+                end
+            end
             continue
         end
 
@@ -767,8 +768,7 @@ function sroa_pass!(ir::IRCode)
         used_ssas = copy(compact.used_ssas)
         simple_dce!(compact, (x::SSAValue) -> used_ssas[x.id] -= 1)
         ir = complete(compact)
-        sroa_mutables!(ir, defuses, used_ssas)
-        return ir
+        return sroa_mutables!(ir, defuses, used_ssas)
     else
         simple_dce!(compact)
         return complete(compact)
@@ -776,6 +776,8 @@ function sroa_pass!(ir::IRCode)
 end
 
 function sroa_mutables!(ir::IRCode, defuses::IdDict{Int, Tuple{SPCSet, SSADefUse}}, used_ssas::Vector{Int})
+    local any_eliminated = false
+
     # Compute domtree, needed below, now that we have finished compacting the IR.
     # This needs to be after we iterate through the IR with `IncrementalCompact`
     # because removing dead blocks can invalidate the domtree.
@@ -868,6 +870,7 @@ function sroa_mutables!(ir::IRCode, defuses::IdDict{Int, Tuple{SPCSet, SSADefUse
                 # Now go through all uses and rewrite them
                 for stmt in du.uses
                     ir[SSAValue(stmt)] = compute_value_for_use(ir, domtree, allblocks, du, phinodes, fidx, stmt)
+                    any_eliminated |= true
                 end
                 if !isbitstype(ftyp)
                     if preserve_uses !== nothing
@@ -906,6 +909,7 @@ function sroa_mutables!(ir::IRCode, defuses::IdDict{Int, Tuple{SPCSet, SSADefUse
 
         @label skip
     end
+    return any_eliminated ? sroa_pass!(compact!(ir), false) : ir
 end
 
 """

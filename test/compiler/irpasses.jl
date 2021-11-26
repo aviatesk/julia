@@ -200,8 +200,10 @@ let src = code_typed1((Any,Any,Any)) do x, y, z
     end
 end
 
-# FIXME our analysis isn't yet so powerful at this moment: may be unable to handle nested objects well
-# OK: mutable(immutable(...)) case
+# FIXME? in order to handle nested `getfield` calls, we run SROA iteratively until any
+# changes aren't observed: it's probably not the most efficient option and we may want
+# to introduce some sort of alias analysis and eliminates all the loads at once.
+# mutable(immutable(...)) case
 let src = code_typed1((Any,Any,Any)) do x, y, z
         xyz = MutableXYZ(x, y, z)
         t   = (xyz,)
@@ -226,21 +228,46 @@ let
     @allocated(simple_sroa("julia"))
     @test @allocated(simple_sroa("julia")) == 0
 end
-# FIXME: immutable(mutable(...)) case
+# immutable(mutable(...)) case
+src = code_typed1((Any,Any,Any)) do x, y, z
+    xyz = ImmutableXYZ(x, y, z)
+    outer = MutableOuter(xyz, xyz, xyz)
+    outer.x.x, outer.y.y, outer.z.z
+end
 let src = code_typed1((Any,Any,Any)) do x, y, z
         xyz = ImmutableXYZ(x, y, z)
         outer = MutableOuter(xyz, xyz, xyz)
         outer.x.x, outer.y.y, outer.z.z
     end
-    @test_broken !any(isnew, src.code)
+    @test !any(isnew, src.code)
+    @test any(src.code) do @nospecialize x
+        iscall((src, tuple), x) &&
+        x.args[2:end] == Any[#=x=# Core.Argument(2), #=y=# Core.Argument(3), #=y=# Core.Argument(4)]
+    end
 end
-# FIXME: mutable(mutable(...)) case
+# mutable(mutable(...)) case
 let src = code_typed1((Any,Any,Any)) do x, y, z
         xyz = MutableXYZ(x, y, z)
         outer = MutableOuter(xyz, xyz, xyz)
         outer.x.x, outer.y.y, outer.z.z
     end
-    @test_broken !any(isnew, src.code)
+    @test !any(isnew, src.code)
+    @test any(src.code) do @nospecialize x
+        iscall((src, tuple), x) &&
+        x.args[2:end] == Any[#=x=# Core.Argument(2), #=y=# Core.Argument(3), #=y=# Core.Argument(4)]
+    end
+end
+let src = code_typed1((Any,Any,Any)) do x, y, z
+        xyz = MutableXYZ(x, y, z)
+        inner = MutableOuter(xyz, xyz, xyz)
+        outer = MutableOuter(inner, inner, inner)
+        outer.x.x.x, outer.y.y.y, outer.z.z.z
+    end
+    @test !any(isnew, src.code)
+    @test any(src.code) do @nospecialize x
+        iscall((src, tuple), x) &&
+        x.args[2:end] == Any[#=x=# Core.Argument(2), #=y=# Core.Argument(3), #=y=# Core.Argument(4)]
+    end
 end
 
 # should work nicely with inlining to optimize away a complicated case
