@@ -273,12 +273,38 @@ function _typeinf(interp::AbstractInterpreter, frame::InferenceState)
             # but our caller might, so let's just make it anyways
             store_backedges(caller, edges)
         end
+        # if isplugin(interp)
+        #     fixup_plugin_entry!(interp, results)
+        # end
         if cached
             cache_result!(interp, caller)
         end
         finish!(interp, caller)
     end
     return true
+end
+
+# function fixup_plugin_entry!(interp::AbstractInterpreter, results::Vector{InfResultInfo})
+#     for (; caller) in results
+#         src = caller.src
+#         if src isa CodeInfo
+#             @assert src.inferred
+#             fixup_plugin_entry!(src)
+#         end
+#     end
+# end
+
+function fixup_plugin_entry!(src::CodeInfo)
+    for i = 1:length(src.code)
+        stmt = src.code[i]
+        if isexpr(stmt, :call)
+            ft = argextype(stmt.args[1], src, #=TODO sptypes=#Any[])
+            f = singleton_type(ft)
+            if f === nothing || !(f isa Builtin)
+                pushfirst!(stmt.args, GlobalRef(Core.Compiler, :execute_with_plugin))
+            end
+        end
+    end
 end
 
 function CodeInstance(
