@@ -1813,7 +1813,7 @@ function abstract_eval_special_value(interp::AbstractInterpreter, @nospecialize(
     elseif isa(e, SlotNumber) || isa(e, Argument)
         sn = slot_id(e)
         s = vtypes[sn]
-        if s.undef
+        if s.undef === true
             sv.src.slotflags[sn] |= SLOT_USEDUNDEF | SLOT_STATICUNDEF
         end
         return s.typ
@@ -2008,9 +2008,9 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
             if vtyp.typ === Bottom
                 sv.src.slotflags[sn] |= SLOT_USEDUNDEF | SLOT_STATICUNDEF
                 t = Const(false) # never assigned previously
-            elseif !vtyp.undef
+            elseif vtyp.undef === false
                 t = Const(true) # definitely assigned previously
-            else
+            elseif vtyp.undef === true
                 sv.src.slotflags[sn] |= SLOT_USEDUNDEF | SLOT_STATICUNDEF
             end
         elseif isa(sym, Symbol)
