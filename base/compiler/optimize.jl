@@ -91,19 +91,26 @@ mutable struct OptimizationState
     linfo::MethodInstance
     src::CodeInfo
     ir::Union{Nothing, IRCode}
+    was_reached::Union{Nothing, BitSet}
     stmt_info::Vector{Any}
     mod::Module
     sptypes::Vector{Any} # static parameters
     slottypes::Vector{Any}
     inlining::InliningState
     function OptimizationState(frame::InferenceState, params::OptimizationParams, interp::AbstractInterpreter)
+        was_reached = BitSet()
+        for i = 1:length(frame.stmt_types)
+            if isa(frame.stmt_types[i], VarTable)
+                push!(was_reached, i)
+            end
+        end
         s_edges = frame.stmt_edges[1]::Vector{Any}
         inlining = InliningState(params,
             EdgeTracker(s_edges, frame.valid_worlds),
             WorldView(code_cache(interp), frame.world),
             interp)
         return new(frame.linfo,
-                   frame.src, nothing, frame.stmt_info, frame.mod,
+                   frame.src, nothing, was_reached, frame.stmt_info, frame.mod,
                    frame.sptypes, frame.slottypes, inlining)
     end
     function OptimizationState(linfo::MethodInstance, src::CodeInfo, params::OptimizationParams, interp::AbstractInterpreter)
@@ -131,10 +138,12 @@ mutable struct OptimizationState
             WorldView(code_cache(interp), get_world_counter()),
             interp)
         return new(linfo,
-                   src, nothing, stmt_info, mod,
+                   src, nothing, nothing, stmt_info, mod,
                    sptypes_from_meth_instance(linfo), slottypes, inlining)
     end
 end
+
+was_reached((; was_reached)::OptimizationState, pc::Int) = was_reached === nothing || pc in was_reached
 
 function OptimizationState(linfo::MethodInstance, params::OptimizationParams, interp::AbstractInterpreter)
     src = retrieve_code_info(linfo)
@@ -571,6 +580,22 @@ function convert_to_ircode(ci::CodeInfo, sv::OptimizationState)
         end
     end
 
+    # TODO
+    # # eliminate GotoIfNot if either of branch target is unreachable
+    # for idx = 1:nexpr
+    #     stmt = body[idx]
+    #     if isa(stmt, GotoIfNot) && widenconst(argextype(stmt.cond, src, sv.sptypes)) === Bool
+    #         # replace live GotoIfNot with:
+    #         # - GotoNode if the fallthrough target is unreachable
+    #         # - no-op if the branch target is unreachable
+    #         if states[idx+1] === nothing
+    #             body[idx] = GotoNode(stmt.dest)
+    #         elseif states[stmt.dest] === nothing
+    #             body[idx] = nothing
+    #         end
+    #     end
+    # end
+
     # Go through and add an unreachable node after every
     # Union{} call. Then reindex labels.
     code = copy_exprargs(ci.code)
@@ -585,6 +610,25 @@ function convert_to_ircode(ci::CodeInfo, sv::OptimizationState)
     labelchangemap = coverage ? fill(0, length(code)) : ssachangemap
     prevloc = zero(eltype(ci.codelocs))
     while idx <= length(code)
+        stmt = code[idx]
+        if process_meta!(meta, stmt) || !(is_meta_expr(stmt) || was_reached(sv, oldidx))
+            if oldidx < length(labelchangemap)
+                ssachangemap[oldidx] != 0 && (ssachangemap[oldidx+1] = ssachangemap[oldidx])
+                ssachangemap[oldidx] = -1
+                if coverage
+                    labelchangemap[oldidx] != 0 && (labelchangemap[oldidx+1] = labelchangemap[oldidx])
+                    labelchangemap[oldidx] = -1
+                end
+            end
+            # TODO: It would be more efficient to do this in bulk
+            deleteat!(code, idx)
+            deleteat!(codelocs, idx)
+            deleteat!(ssavaluetypes, idx)
+            deleteat!(stmtinfo, idx)
+            deleteat!(ssaflags, idx)
+            oldidx += 1
+            continue
+        end
         codeloc = codelocs[idx]
         if coverage && codeloc != prevloc && codeloc != 0
             # insert a side-effect instruction before the current instruction in the same basic block
@@ -600,7 +644,16 @@ function convert_to_ircode(ci::CodeInfo, sv::OptimizationState)
             idx += 1
             prevloc = codeloc
         end
-        if code[idx] isa Expr && ssavaluetypes[idx] === Union{}
+        if false # TODO isa(stmt, GotoIfNot)
+            # replace GotoIfNot with:
+            # - GotoNode if the fallthrough target is unreachable
+            # - no-op if the branch target is unreachable
+            if !was_reached(sv, oldidx + 1)
+                code[idx] = GotoNode(stmt.dest)
+            elseif !was_reached(sv, stmt.dest)
+                code[idx] = nothing
+            end
+        elseif stmt isa Expr && ssavaluetypes[idx] === Union{}
             if !(idx < length(code) && isa(code[idx + 1], ReturnNode) && !isdefined((code[idx + 1]::ReturnNode), :val))
                 # insert unreachable in the same basic block after the current instruction (splitting it)
                 insert!(code, idx + 1, ReturnNode())
@@ -621,9 +674,6 @@ function convert_to_ircode(ci::CodeInfo, sv::OptimizationState)
 
     renumber_ir_elements!(code, ssachangemap, labelchangemap)
 
-    for i = 1:length(code)
-        code[i] = process_meta!(meta, code[i])
-    end
     strip_trailing_junk!(ci, code, stmtinfo)
     types = Any[]
     stmts = InstructionStream(code, types, stmtinfo, codelocs, ssaflags)
@@ -634,9 +684,9 @@ end
 function process_meta!(meta::Vector{Expr}, @nospecialize stmt)
     if isexpr(stmt, :meta) && length(stmt.args) ≥ 1
         push!(meta, stmt)
-        return nothing
+        return true
     end
-    return stmt
+    return false
 end
 
 function slot2reg(ir::IRCode, ci::CodeInfo, sv::OptimizationState)
