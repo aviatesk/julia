@@ -91,19 +91,22 @@ mutable struct OptimizationState
     linfo::MethodInstance
     src::CodeInfo
     ir::Union{Nothing, IRCode}
-    was_reached::Union{Nothing, BitSet}
+    was_reached::Union{Nothing, BitVector}
     stmt_info::Vector{Any}
     mod::Module
     sptypes::Vector{Any} # static parameters
     slottypes::Vector{Any}
     inlining::InliningState
     function OptimizationState(frame::InferenceState, params::OptimizationParams, interp::AbstractInterpreter)
-        was_reached = BitSet()
-        for i = 1:length(frame.stmt_types)
-            if isa(frame.stmt_types[i], VarTable)
-                push!(was_reached, i)
-            end
-        end
+        nstmts = length(frame.stmt_types)
+        was_reached = BitVector(undef, nstmts)
+        for i = 1:nstmts; was_reached[i] = frame.stmt_types[i] isa VarTable; end
+        # was_reached = BitSet()
+        # for i = 1:length(frame.stmt_types)
+        #     if isa(frame.stmt_types[i], VarTable)
+        #         push!(was_reached, i)
+        #     end
+        # end
         s_edges = frame.stmt_edges[1]::Vector{Any}
         inlining = InliningState(params,
             EdgeTracker(s_edges, frame.valid_worlds),
@@ -143,7 +146,7 @@ mutable struct OptimizationState
     end
 end
 
-was_reached((; was_reached)::OptimizationState, pc::Int) = was_reached === nothing || pc in was_reached
+was_reached((; was_reached)::OptimizationState, pc::Int) = was_reached === nothing || was_reached[pc]
 
 function OptimizationState(linfo::MethodInstance, params::OptimizationParams, interp::AbstractInterpreter)
     src = retrieve_code_info(linfo)
@@ -605,11 +608,12 @@ function convert_to_ircode(ci::CodeInfo, sv::OptimizationState)
     ssaflags = ci.ssaflags
     meta = Expr[]
     idx = 1
-    oldidx = 1
+    oldidx = 0
     ssachangemap = fill(0, length(code))
     labelchangemap = coverage ? fill(0, length(code)) : ssachangemap
     prevloc = zero(eltype(ci.codelocs))
     while idx <= length(code)
+        oldidx += 1
         stmt = code[idx]
         if process_meta!(meta, stmt) || !(is_meta_expr(stmt) || was_reached(sv, oldidx))
             if oldidx < length(labelchangemap)
@@ -620,13 +624,15 @@ function convert_to_ircode(ci::CodeInfo, sv::OptimizationState)
                     labelchangemap[oldidx] = -1
                 end
             end
+            # ssachangemap[oldidx] -= 1
+            # labelchangemap[oldidx] -= 1
             # TODO: It would be more efficient to do this in bulk
             deleteat!(code, idx)
             deleteat!(codelocs, idx)
             deleteat!(ssavaluetypes, idx)
             deleteat!(stmtinfo, idx)
             deleteat!(ssaflags, idx)
-            oldidx += 1
+            # deleteat!(sv.was_reached, idx)
             continue
         end
         codeloc = codelocs[idx]
@@ -644,16 +650,16 @@ function convert_to_ircode(ci::CodeInfo, sv::OptimizationState)
             idx += 1
             prevloc = codeloc
         end
-        if false # TODO isa(stmt, GotoIfNot)
-            # replace GotoIfNot with:
-            # - GotoNode if the fallthrough target is unreachable
-            # - no-op if the branch target is unreachable
-            if !was_reached(sv, oldidx + 1)
-                code[idx] = GotoNode(stmt.dest)
-            elseif !was_reached(sv, stmt.dest)
-                code[idx] = nothing
-            end
-        elseif stmt isa Expr && ssavaluetypes[idx] === Union{}
+        # if false # TODO isa(stmt, GotoIfNot)
+        #     # replace GotoIfNot with:
+        #     # - GotoNode if the fallthrough target is unreachable
+        #     # - no-op if the branch target is unreachable
+        #     if !was_reached(sv, oldidx + 1)
+        #         code[idx] = GotoNode(stmt.dest)
+        #     elseif !was_reached(sv, stmt.dest)
+        #         code[idx] = nothing
+        #     end
+        if code[idx] isa Expr && ssavaluetypes[idx] === Union{}
             if !(idx < length(code) && isa(code[idx + 1], ReturnNode) && !isdefined((code[idx + 1]::ReturnNode), :val))
                 # insert unreachable in the same basic block after the current instruction (splitting it)
                 insert!(code, idx + 1, ReturnNode())
@@ -669,7 +675,7 @@ function convert_to_ircode(ci::CodeInfo, sv::OptimizationState)
             end
         end
         idx += 1
-        oldidx += 1
+        # oldidx += 1
     end
 
     renumber_ir_elements!(code, ssachangemap, labelchangemap)
