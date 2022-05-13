@@ -627,6 +627,7 @@ function annotate_slot_load!(undefs::Vector{Bool}, idx::Int, sv::InferenceState,
             typ = widenconditional(ignorelimited(vt.typ))
         else
             typ = sv.src.ssavaluetypes[pc]
+            @assert typ !== NOT_FOUND
         end
         # add type annotations where needed
         if !(sv.slottypes[id] ⊑ typ)
@@ -672,8 +673,6 @@ end
 
 # annotate types of all symbols in AST
 function type_annotate!(sv::InferenceState, run_optimizer::Bool)
-    widen_ssavaluetypes!(sv)
-
     # compute the required type for each slot
     # to hold all of the items assigned into it
     record_slot_assign!(sv)
@@ -752,9 +751,17 @@ function type_annotate!(sv::InferenceState, run_optimizer::Bool)
     end
 
     src.code = body
-    src.ssavaluetypes = ssavaluetypes
+    src.ssavaluetypes = widen_ssavaluetypes!(ssavaluetypes)
 
     nothing
+end
+
+function widen_ssavaluetypes!(ssavaluetypes::Vector{Any})
+    for j = 1:length(ssavaluetypes)
+        t = ssavaluetypes[j]
+        ssavaluetypes[j] = t === NOT_FOUND ? Bottom : widenconditional(t)
+    end
+    return ssavaluetypes
 end
 
 # at the end, all items in b's cycle
