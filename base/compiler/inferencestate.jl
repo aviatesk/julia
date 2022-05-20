@@ -80,6 +80,40 @@ function in(idx::Int, bsbmp::BitSetBoundedMinPrioritySet)
     return idx in bsbmp.elems
 end
 
+mutable struct LazyIdSet{T}
+    actual::Union{Nothing,IdSet{T}}
+    LazyIdSet{T}() where T = new{T}(nothing)
+end
+isempty(xs::LazyIdSet) = (xs′ = xs.actual; xs′ === nothing || isempty(xs′))
+empty!(xs::LazyIdSet) = (xs′ = xs.actual; xs′ === nothing || empty!(xs′); xs)
+delete!(xs::LazyIdSet{T}, x::T) where T = (xs′ = xs.actual; xs′ === nothing || delete!(xs′, x); xs)
+function union!(xs::LazyIdSet{T}, ys′::IdSet{T}) where T
+    xs′ = xs.actual
+    if xs′ === nothing
+        xs′ = xs.actual = IdSet{T}()
+    end
+    union!(xs′, ys′)
+    return xs
+end
+function union!(xs::LazyIdSet{T}, ys::LazyIdSet{T}) where T
+    ys′ = ys.actual
+    ys′ === nothing && return xs
+    xs′ = xs.actual
+    if xs′ === nothing
+        xs′ = xs.actual = IdSet{T}()
+    end
+    union!(xs′, ys′)
+    return xs
+end
+function push!(xs::LazyIdSet{T}, x::T) where T
+    xs′ = xs.actual
+    if xs′ === nothing
+        xs′ = xs.actual = IdSet{T}()
+    end
+    push!(xs′, x)
+    return xs
+end
+
 mutable struct InferenceState
     #= information about this method instance =#
     linfo::MethodInstance
@@ -98,9 +132,9 @@ mutable struct InferenceState
     stmt_edges::Vector{Union{Nothing, Vector{Any}}}
     stmt_info::Vector{Any}
 
-    #= interprocedural intermediate states for abstract interpretation =#
-    pclimitations::IdSet{InferenceState} # causes of precision restrictions (LimitedAccuracy) on currpc ssavalue
-    limitations::IdSet{InferenceState} # causes of precision restrictions (LimitedAccuracy) on return
+    #= intermediate states for interprocedural abstract interpretation =#
+    pclimitations::LazyIdSet{InferenceState} # causes of precision restrictions (LimitedAccuracy) on currpc ssavalue
+    limitations::LazyIdSet{InferenceState} # causes of precision restrictions (LimitedAccuracy) on return
     cycle_backedges::Vector{Tuple{InferenceState, Int}} # call-graph backedges connecting from callee to caller
     callers_in_cycle::Vector{InferenceState}
     dont_work_on_me::Bool
@@ -156,8 +190,8 @@ mutable struct InferenceState
             slottypes[i] = argtyp
         end
 
-        pclimitations = IdSet{InferenceState}()
-        limitations = IdSet{InferenceState}()
+        pclimitations = LazyIdSet{InferenceState}()
+        limitations = LazyIdSet{InferenceState}()
         cycle_backedges = Vector{Tuple{InferenceState,Int}}()
         callers_in_cycle = Vector{InferenceState}()
         dont_work_on_me = false

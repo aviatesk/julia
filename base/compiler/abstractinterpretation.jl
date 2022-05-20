@@ -2057,12 +2057,10 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
         t = Const(t.instance)
     end
     if !isempty(sv.pclimitations)
-        if t isa Const || t === Union{}
-            empty!(sv.pclimitations)
-        else
-            t = LimitedAccuracy(t, sv.pclimitations)
-            sv.pclimitations = IdSet{InferenceState}()
+        if !(t isa Const || t === Bottom)
+            t = LimitedAccuracy(t, copy(sv.pclimitations.actual::IdSet{InferenceState}))
         end
+        empty!(sv.pclimitations)
     end
     return t
 end
@@ -2280,7 +2278,7 @@ function typeinf_local(interp::AbstractInterpreter, frame::InferenceState)
                 empty!(frame.pclimitations)
             end
             if !isempty(frame.limitations)
-                rt = LimitedAccuracy(rt, copy(frame.limitations))
+                rt = LimitedAccuracy(rt, copy(frame.limitations.actual::IdSet{InferenceState}))
             end
             if tchanged(rt, bestguess)
                 # new (wider) return type for frame
