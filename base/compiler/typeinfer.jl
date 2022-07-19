@@ -437,6 +437,17 @@ function adjust_effects(sv::InferenceState)
         consistent = ipo_effects.consistent & ~CONSISTENT_IF_NOTRETURNED
         ipo_effects = Effects(ipo_effects; consistent)
     end
+    if is_consistent_if_noglobal(ipo_effects)
+        if is_noglobal(ipo_effects)
+            if all(i::Int->is_effect_free_argtype(sv.slottypes[i]), 1:narguments(sv))
+                consistent = ipo_effects.consistent & ~(CONSISTENT_IF_NOGLOBAL)
+                ipo_effects = Effects(ipo_effects; consistent)
+            end
+        else # if already not `:noglobal`, there will be no chance to refine this, so
+             # is there anyway to refine `:noglobal` effect later?
+            ipo_effects = Effects(ipo_effects; consistent=ALWAYS_FALSE)
+        end
+    end
 
     # override the analyzed effects using manually annotated effect settings
     def = sv.linfo.def

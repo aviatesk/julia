@@ -74,6 +74,7 @@ const ALWAYS_TRUE  = 0x00
 const ALWAYS_FALSE = 0x01
 
 const CONSISTENT_IF_NOTRETURNED = 0x01 << 1
+const CONSISTENT_IF_NOGLOBAL    = 0x01 << 2
 
 const EFFECTS_TOTAL    = Effects(ALWAYS_TRUE,   true,  true,  true,  true,  true, true)
 const EFFECTS_THROWS   = Effects(ALWAYS_TRUE,   true,  false, true,  true,  true, true)
@@ -144,26 +145,27 @@ is_removable_if_unused(effects::Effects) =
     is_nothrow(effects)
 
 is_consistent_if_notreturned(effects::Effects) = !iszero(effects.consistent & CONSISTENT_IF_NOTRETURNED)
+is_consistent_if_noglobal(effects::Effects) = !iszero(effects.consistent & CONSISTENT_IF_NOGLOBAL)
 
 function encode_effects(e::Effects)
     return ((e.consistent   % UInt32) << 0) |
-           ((e.effect_free  % UInt32) << 2) |
-           ((e.nothrow      % UInt32) << 3) |
-           ((e.terminates   % UInt32) << 4) |
-           ((e.notaskstate  % UInt32) << 5) |
-           ((e.noglobal     % UInt32) << 6) |
-           ((e.nonoverlayed % UInt32) << 7)
+           ((e.effect_free  % UInt32) << 3) |
+           ((e.nothrow      % UInt32) << 4) |
+           ((e.terminates   % UInt32) << 5) |
+           ((e.notaskstate  % UInt32) << 6) |
+           ((e.noglobal     % UInt32) << 7) |
+           ((e.nonoverlayed % UInt32) << 8)
 end
 
 function decode_effects(e::UInt32)
     return Effects(
-        UInt8((e >> 0) & 0x03),
-        _Bool((e >> 2) & 0x01),
+        UInt8((e >> 0) & 0x07),
         _Bool((e >> 3) & 0x01),
         _Bool((e >> 4) & 0x01),
         _Bool((e >> 5) & 0x01),
         _Bool((e >> 6) & 0x01),
-        _Bool((e >> 7) & 0x01))
+        _Bool((e >> 7) & 0x01),
+        _Bool((e >> 8) & 0x01))
 end
 
 struct EffectsOverride

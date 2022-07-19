@@ -333,6 +333,7 @@ function _is_effect_free_type(@nospecialize ty)
     if isType(ty) || ty === DataType || ty === String || ty === Symbol || ty === SimpleVector
         return true
     end
+    ty === Module && return true # TODO add comment on why this is valid
     # TODO improve this analysis, e.g. allow `Some{Symbol}`
     return isbitstype(ty)
 end
