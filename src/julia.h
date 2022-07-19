@@ -247,6 +247,7 @@ typedef union __jl_purity_overrides_t {
         // assertions about any called functions.
         uint8_t ipo_terminates_locally  : 1;
         uint8_t ipo_notaskstate         : 1;
+        uint8_t ipo_noglobal            : 1;
     } overrides;
     uint8_t bits;
 } _jl_purity_overrides_t;
@@ -407,6 +408,7 @@ typedef struct _jl_code_instance_t {
             uint8_t ipo_terminates   : 2;
             uint8_t ipo_nonoverlayed : 1;
             uint8_t ipo_notaskstate  : 2;
+            uint8_t ipo_noglobal     : 2;
         } ipo_purity_flags;
     };
     union {
@@ -418,6 +420,7 @@ typedef struct _jl_code_instance_t {
             uint8_t terminates   : 2;
             uint8_t nonoverlayed : 1;
             uint8_t notaskstate  : 2;
+            uint8_t noglobal     : 2;
         } purity_flags;
     };
 #else

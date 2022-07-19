@@ -457,6 +457,9 @@ function adjust_effects(sv::InferenceState)
         if is_effect_overridden(override, :notaskstate)
             ipo_effects = Effects(ipo_effects; notaskstate=true)
         end
+        if is_effect_overridden(override, :noglobal)
+            ipo_effects = Effects(ipo_effects; noglobal=true)
+        end
     end
 
     return ipo_effects

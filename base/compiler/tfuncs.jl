@@ -1848,6 +1848,30 @@ const _CONSISTENT_BUILTINS = Any[
     setfield!
 ]
 
+const _NOGLOBAL_BUILTINS = Any[
+    (<:),
+    (===),
+    apply_type,
+    arrayref,
+    arrayset,
+    arraysize,
+    Core.ifelse,
+    sizeof,
+    svec,
+    fieldtype,
+    isa,
+    isdefined,
+    modifyfield!,
+    nfields,
+    replacefield!,
+    setfield!,
+    swapfield!,
+    throw,
+    tuple,
+    typeassert,
+    typeof
+]
+
 const _SPECIAL_BUILTINS = Any[
     Core._apply_iterate
 ]
@@ -1891,21 +1915,28 @@ function getfield_effects(argtypes::Vector{Any}, @nospecialize(rt))
     else
         nothrow = getfield_nothrow(argtypes)
     end
-    return Effects(EFFECTS_TOTAL; consistent, nothrow)
+    noglobal = true
+    if hasintersect(widenconst(obj), Module)
+        noglobal = getglobal_effects(argtypes, rt).noglobal
+    end
+    return Effects(EFFECTS_TOTAL; consistent, nothrow, noglobal)
 end
 
 function getglobal_effects(argtypes::Vector{Any}, @nospecialize(rt))
     consistent = ALWAYS_FALSE
-    nothrow = false
+    nothrow = noglobal = false
     if getglobal_nothrow(argtypes)
         nothrow = true
         # typeasserts below are already checked in `getglobal_nothrow`
         M, s = (argtypes[1]::Const).val::Module, (argtypes[2]::Const).val::Symbol
         if isconst(M, s)
             consistent = ALWAYS_TRUE
+            if is_effect_free_argtype(rt)
+                noglobal = true
+            end
         end
     end
-    return Effects(EFFECTS_TOTAL; consistent, nothrow)
+    return Effects(EFFECTS_TOTAL; consistent, nothrow, noglobal)
 end
 
 function builtin_effects(f::Builtin, argtypes::Vector{Any}, @nospecialize(rt))
@@ -1925,7 +1956,8 @@ function builtin_effects(f::Builtin, argtypes::Vector{Any}, @nospecialize(rt))
         consistent = contains_is(_CONSISTENT_BUILTINS, f) ? ALWAYS_TRUE : ALWAYS_FALSE
         effect_free = (contains_is(_EFFECT_FREE_BUILTINS, f) || contains_is(_PURE_BUILTINS, f))
         nothrow = (!(!isempty(argtypes) && isvarargtype(argtypes[end])) && builtin_nothrow(f, argtypes, rt))
-        return Effects(EFFECTS_TOTAL; consistent, effect_free, nothrow)
+        noglobal = contains_is(_NOGLOBAL_BUILTINS, f)
+        return Effects(EFFECTS_TOTAL; consistent, effect_free, nothrow, noglobal)
     end
 end
 

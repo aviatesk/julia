@@ -13,6 +13,7 @@ The effects are composed of the following set of different properties:
   behavior. Note that this currently implies that `noyield` as well, since
   yielding modifies the state of the current task, though this may be split
   in the future.
+- `noglobal::Bool`: this method does not access or modify any mutable global state
 - `nonoverlayed::Bool`: indicates that any methods that may be called within this method
   are not defined in an [overlayed method table](@ref OverlayMethodTable)
 - `noinbounds::Bool`: indicates this method can't be `:consistent` because of bounds checking.
@@ -45,6 +46,7 @@ struct Effects
     nothrow::Bool
     terminates::Bool
     notaskstate::Bool
+    noglobal::Bool
     nonoverlayed::Bool
     noinbounds::Bool
     function Effects(
@@ -53,6 +55,7 @@ struct Effects
         nothrow::Bool,
         terminates::Bool,
         notaskstate::Bool,
+        noglobal::Bool,
         nonoverlayed::Bool,
         noinbounds::Bool = true)
         return new(
@@ -61,6 +64,7 @@ struct Effects
             nothrow,
             terminates,
             notaskstate,
+            noglobal,
             nonoverlayed,
             noinbounds)
     end
@@ -71,10 +75,10 @@ const ALWAYS_FALSE = 0x01
 
 const CONSISTENT_IF_NOTRETURNED = 0x01 << 1
 
-const EFFECTS_TOTAL    = Effects(ALWAYS_TRUE,   true,  true,  true,  true,  true)
-const EFFECTS_THROWS   = Effects(ALWAYS_TRUE,   true, false,  true,  true,  true)
-const EFFECTS_UNKNOWN  = Effects(ALWAYS_FALSE, false, false, false, false,  true)  # unknown mostly, but it's not overlayed at least (e.g. it's not a call)
-const EFFECTS_UNKNOWN′ = Effects(ALWAYS_FALSE, false, false, false, false, false) # unknown really
+const EFFECTS_TOTAL    = Effects(ALWAYS_TRUE,   true,  true,  true,  true,  true, true)
+const EFFECTS_THROWS   = Effects(ALWAYS_TRUE,   true,  false, true,  true,  true, true)
+const EFFECTS_UNKNOWN  = Effects(ALWAYS_FALSE, false, false, false, false, false, true)  # unknown mostly, but it's not overlayed at least (e.g. it's not a call)
+const EFFECTS_UNKNOWN′ = Effects(ALWAYS_FALSE, false, false, false, false, false, false) # unknown really
 
 function Effects(e::Effects = EFFECTS_UNKNOWN′;
     consistent::UInt8 = e.consistent,
@@ -82,6 +86,7 @@ function Effects(e::Effects = EFFECTS_UNKNOWN′;
     nothrow::Bool = e.nothrow,
     terminates::Bool = e.terminates,
     notaskstate::Bool = e.notaskstate,
+    noglobal::Bool = e.noglobal,
     nonoverlayed::Bool = e.nonoverlayed,
     noinbounds::Bool = e.noinbounds)
     return Effects(
@@ -90,6 +95,7 @@ function Effects(e::Effects = EFFECTS_UNKNOWN′;
         nothrow,
         terminates,
         notaskstate,
+        noglobal,
         nonoverlayed,
         noinbounds)
 end
@@ -101,6 +107,7 @@ function merge_effects(old::Effects, new::Effects)
         merge_effectbits(old.nothrow, new.nothrow),
         merge_effectbits(old.terminates, new.terminates),
         merge_effectbits(old.notaskstate, new.notaskstate),
+        merge_effectbits(old.noglobal, new.noglobal),
         merge_effectbits(old.nonoverlayed, new.nonoverlayed),
         merge_effectbits(old.noinbounds, new.noinbounds))
 end
@@ -118,9 +125,10 @@ is_effect_free(effects::Effects)  = effects.effect_free
 is_nothrow(effects::Effects)      = effects.nothrow
 is_terminates(effects::Effects)   = effects.terminates
 is_notaskstate(effects::Effects)  = effects.notaskstate
+is_noglobal(effects::Effects)     = effects.noglobal
 is_nonoverlayed(effects::Effects) = effects.nonoverlayed
 
-# implies :notaskstate, but not explicitly checked here
+# implies `is_notaskstate` & `is_noglobal`, but not explicitly checked here
 is_foldable(effects::Effects) =
     is_consistent(effects) &&
     is_effect_free(effects) &&
@@ -143,7 +151,8 @@ function encode_effects(e::Effects)
            ((e.nothrow      % UInt32) << 3) |
            ((e.terminates   % UInt32) << 4) |
            ((e.notaskstate  % UInt32) << 5) |
-           ((e.nonoverlayed % UInt32) << 6)
+           ((e.noglobal     % UInt32) << 6) |
+           ((e.nonoverlayed % UInt32) << 7)
 end
 
 function decode_effects(e::UInt32)
@@ -153,7 +162,8 @@ function decode_effects(e::UInt32)
         _Bool((e >> 3) & 0x01),
         _Bool((e >> 4) & 0x01),
         _Bool((e >> 5) & 0x01),
-        _Bool((e >> 6) & 0x01))
+        _Bool((e >> 6) & 0x01),
+        _Bool((e >> 7) & 0x01))
 end
 
 struct EffectsOverride
@@ -163,6 +173,7 @@ struct EffectsOverride
     terminates_globally::Bool
     terminates_locally::Bool
     notaskstate::Bool
+    noglobal::Bool
 end
 
 function encode_effects_override(eo::EffectsOverride)
@@ -173,6 +184,7 @@ function encode_effects_override(eo::EffectsOverride)
     eo.terminates_globally && (e |= (0x01 << 3))
     eo.terminates_locally  && (e |= (0x01 << 4))
     eo.notaskstate         && (e |= (0x01 << 5))
+    eo.noglobal            && (e |= (0x01 << 6))
     return e
 end
 
@@ -183,5 +195,6 @@ function decode_effects_override(e::UInt8)
         (e & (0x01 << 2)) != 0x00,
         (e & (0x01 << 3)) != 0x00,
         (e & (0x01 << 4)) != 0x00,
-        (e & (0x01 << 5)) != 0x00)
+        (e & (0x01 << 5)) != 0x00,
+        (e & (0x01 << 6)) != 0x00)
 end

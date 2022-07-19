@@ -821,6 +821,8 @@ function Base.show(io::IO, e::Effects)
     printstyled(io, effectbits_letter(e, :terminates,  't'); color=effectbits_color(e, :terminates))
     print(io, ',')
     printstyled(io, effectbits_letter(e, :notaskstate, 's'); color=effectbits_color(e, :notaskstate))
+    print(io, ',')
+    printstyled(io, effectbits_letter(e, :noglobal, 'g'); color=effectbits_color(e, :noglobal))
     print(io, ')')
     e.nonoverlayed || printstyled(io, '′'; color=:red)
 end

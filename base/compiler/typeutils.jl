@@ -321,3 +321,18 @@ function _is_immutable_type(@nospecialize ty)
     end
     return !isabstracttype(ty) && !ismutabletype(ty)
 end
+
+is_effect_free_argtype(@nospecialize argtype) =
+    is_effect_free_type(widenconst(ignorelimited(argtype)))
+is_effect_free_type(@nospecialize ty) =
+    _is_effect_free_type(unwrap_unionall(ty))
+function _is_effect_free_type(@nospecialize ty)
+    if isa(ty, Union)
+        return _is_effect_free_type(ty.a) && _is_effect_free_type(ty.b)
+    end
+    if isType(ty) || ty === DataType || ty === String || ty === Symbol || ty === SimpleVector
+        return true
+    end
+    # TODO improve this analysis, e.g. allow `Some{Symbol}`
+    return isbitstype(ty)
+end
