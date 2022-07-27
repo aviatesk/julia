@@ -2081,11 +2081,11 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
             override = decode_effects_override(v[2])
             effects = Effects(
                 override.consistent          ? ALWAYS_TRUE : effects.consistent,
-                override.effect_free         ? true       : effects.effect_free,
-                override.nothrow             ? true       : effects.nothrow,
-                override.terminates_globally ? true       : effects.terminates,
-                override.notaskstate         ? true       : effects.notaskstate,
-                override.noglobal            ? true       : effects.noglobal,
+                override.effect_free         ? ALWAYS_TRUE : effects.effect_free,
+                override.nothrow             ? true        : effects.nothrow,
+                override.terminates_globally ? true        : effects.terminates,
+                override.notaskstate         ? true        : effects.notaskstate,
+                override.noglobal            ? true        : effects.noglobal,
                 effects.nonoverlayed)
         end
         merge_effects!(sv, effects)
@@ -2184,7 +2184,7 @@ function abstract_eval_global(M::Module, s::Symbol, frame::InferenceState)
 end
 
 function handle_global_assignment!(interp::AbstractInterpreter, frame::InferenceState, lhs::GlobalRef, @nospecialize(newty))
-    effect_free = false
+    effect_free = ALWAYS_FALSE
     nothrow = global_assignment_nothrow(lhs.mod, lhs.name, newty)
     noglobal = false
     merge_effects!(frame, Effects(EFFECTS_TOTAL; effect_free, nothrow, noglobal))

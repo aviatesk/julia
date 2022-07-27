@@ -448,6 +448,14 @@ function adjust_effects(sv::InferenceState)
             ipo_effects = Effects(ipo_effects; consistent=ALWAYS_FALSE)
         end
     end
+    if is_effect_free_if_noglobal(ipo_effects)
+        if !is_noglobal(ipo_effects)
+            ipo_effects = Effects(ipo_effects; effect_free=ALWAYS_FALSE)
+        elseif all(i::Int->is_effect_free_argtype(sv.slottypes[i]), 1:narguments(sv))
+            effect_free = ipo_effects.effect_free & ~EFFECT_FREE_IF_NOGLOBAL
+            ipo_effects = Effects(ipo_effects; effect_free)
+        end
+    end
 
     # override the analyzed effects using manually annotated effect settings
     def = sv.linfo.def
@@ -457,7 +465,7 @@ function adjust_effects(sv::InferenceState)
             ipo_effects = Effects(ipo_effects; consistent=ALWAYS_TRUE)
         end
         if is_effect_overridden(override, :effect_free)
-            ipo_effects = Effects(ipo_effects; effect_free=true)
+            ipo_effects = Effects(ipo_effects; effect_free=ALWAYS_TRUE)
         end
         if is_effect_overridden(override, :nothrow)
             ipo_effects = Effects(ipo_effects; nothrow=true)
