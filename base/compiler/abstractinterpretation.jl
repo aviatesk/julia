@@ -1108,7 +1108,7 @@ function const_prop_entry_heuristic(interp::AbstractInterpreter, result::MethodC
         else
             return true
         end
-    elseif isa(rt, PartialStruct) || isa(rt, InterConditional) || isa(rt, InterMustAlias)
+    elseif isa(rt, PartialStruct) || isa(rt, Interval) || isa(rt, InterConditional) || isa(rt, InterMustAlias)
         # could be improved to `Const` or a more precise wrapper
         return true
     elseif isa(rt, LimitedAccuracy)
@@ -2645,6 +2645,17 @@ function bool_rt_to_conditional(@nospecialize(rt), slot_id::Int, info::Bestguess
         end
     end
     return rt
+end
+
+function widenreturn(𝕃ᵢ::IntervalsLattice, @nospecialize(rt), info::BestguessInfo)
+    return widenreturn_interval(𝕃ᵢ, rt, info)
+end
+function widenreturn_noslotwrapper(𝕃ᵢ::IntervalsLattice, @nospecialize(rt), info::BestguessInfo)
+    return widenreturn_interval(𝕃ᵢ, rt, info)
+end
+function widenreturn_interval(𝕃ᵢ::IntervalsLattice, @nospecialize(rt), info::BestguessInfo)
+    isa(rt, Interval) && return rt
+    return widenreturn(widenlattice(𝕃ᵢ), rt, info)
 end
 
 function widenreturn(𝕃ᵢ::PartialsLattice, @nospecialize(rt), info::BestguessInfo)
