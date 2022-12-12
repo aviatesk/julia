@@ -167,7 +167,11 @@ function ext_int_interval(@nospecialize(a), @nospecialize(b))
         bw = widenconst(b)
         if isconcretetype(bw) && bw <: BitInteger
             sizeof(aty) > sizeof(bw) || return Bottom
-            return Interval(aty, typemin(bw), typemax(bw))
+            if aty <: SignedInt
+                return Interval(aty, aty(typemin(bw)), aty(typemax(bw)))
+            elseif aty <: Unsigned
+                return Interval(aty, zero(aty), aty(typemax(bw)))
+            end
         end
     end
     return aty
@@ -255,6 +259,8 @@ add_tfunc(sqrt_llvm_fast, 1, 1, math_tfunc, 20)
     end
     return Bool
 end
+@nospecs ne_int_tfunc(𝕃::AbstractLattice, a, b) = ne_int_tfunc(widenlattice(𝕃), a, b)
+@nospecs ne_int_tfunc(𝕃::JLTypeLattice, a, b) = Bool
 @nospecs function ne_int_tfunc(𝕃::IntervalsLattice, a, b)
     if isa(a, Interval)
         if isa(b, Interval)
@@ -271,7 +277,7 @@ end
 end
 
 add_tfunc(eq_int, 2, 2, eq_int_tfunc, 1)
-add_tfunc(ne_int, 2, 2, eq_int_tfunc, 1)
+add_tfunc(ne_int, 2, 2, ne_int_tfunc, 1)
 add_tfunc(slt_int, 2, 2, cmp_tfunc, 1)
 add_tfunc(ult_int, 2, 2, cmp_tfunc, 1)
 add_tfunc(sle_int, 2, 2, cmp_tfunc, 1)

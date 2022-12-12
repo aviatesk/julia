@@ -91,7 +91,7 @@ is_valid_lattice_norec(::InterMustAliasesLattice, @nospecialize(elem)) = isa(ele
 const AnyConditionalsLattice{𝕃<:AbstractLattice} = Union{ConditionalsLattice{𝕃}, InterConditionalsLattice{𝕃}}
 const AnyMustAliasesLattice{𝕃<:AbstractLattice} = Union{MustAliasesLattice{𝕃}, InterMustAliasesLattice{𝕃}}
 
-const SimpleInferenceLattice = typeof(PartialsLattice(ConstsLattice()))
+const SimpleInferenceLattice = typeof(PartialsLattice(IntervalsLattice(ConstsLattice())))
 const BaseInferenceLattice = typeof(ConditionalsLattice(SimpleInferenceLattice.instance))
 const IPOResultLattice = typeof(InterConditionalsLattice(SimpleInferenceLattice.instance))
 

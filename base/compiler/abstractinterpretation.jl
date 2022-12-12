@@ -1219,11 +1219,14 @@ function const_prop_function_heuristic(interp::AbstractInterpreter, @nospecializ
         # it is almost useless to inline the op when all the same type,
         # but highly worthwhile to inline promote of a constant
         length(argtypes) > 2 || return false
-        t1 = widenconst(argtypes[2])
+        at₂ = argtypes[2]
+        isa(at₂, Interval) && return true
+        t2 = widenconst(at₂)
         for i in 3:length(argtypes)
-            at = argtypes[i]
-            ty = isvarargtype(at) ? unwraptv(at) : widenconst(at)
-            if ty !== t1
+            atᵢ = argtypes[i]
+            isa(atᵢ, Interval) && return true
+            ty = isvarargtype(atᵢ) ? unwraptv(atᵢ) : widenconst(atᵢ)
+            if ty !== t2
                 return true
             end
         end

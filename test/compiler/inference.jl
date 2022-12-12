@@ -4678,3 +4678,9 @@ bar47688() = foo47688()
 @test it_count47688 == 7
 @test isa(foo47688(), NTuple{6, Int})
 @test it_count47688 == 14
+
+# interval arithmetics analysis
+
+@test Base.return_types((Int32,)) do x
+    x == typemax(Int) ? 0 : nothing
+end |> only === Nothing
