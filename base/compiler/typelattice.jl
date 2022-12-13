@@ -238,6 +238,32 @@ function hasintersection(a::Interval, b::Const)
     return false
 end
 
+const BasicFloat = Union{Float16, Float32, Float64}
+
+a::Interval + b::Interval = begin
+    @assert a.typ === b.typ
+    typ = a.typ
+    if typ <: BitInteger
+        return Interval(typ, add_int(a.min, b.min), add_int(a.max, b.max))
+    elseif typ <: BasicFloat
+        return Interval(typ, add_float(a.min, b.min), add_float(a.max, b.max))
+    else
+        throw("Interval expects basic numeric types")
+    end
+end
+a::Interval + b::Const = begin
+    @assert a.typ === typeof(b.val)
+    typ = a.typ
+    if typ <: BitInteger
+        return Interval(typ, add_int(a.min, b.val), add_int(a.max, b.val))
+    elseif typ <: BasicFloat
+        return Interval(typ, add_float(a.min, b.val), add_float(a.max, b.val))
+    else
+        throw("Interval expects basic numeric types")
+    end
+end
+a::Const + b::Interval = b + a
+
 # slot wrappers
 # =============
 
