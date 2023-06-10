@@ -1406,7 +1406,7 @@ function compute_inlining_cases(@nospecialize(info::CallInfo), flag::UInt8, sig:
         fully_covered &= split_fully_covered
     end
 
-    fully_covered || (joint_effects = Effects(joint_effects; nothrow=false))
+    fully_covered || (joint_effects = Effects(joint_effects; nothrow=ALWAYS_FALSE))
 
     if handled_all_cases && revisit_idx !== nothing
         # we handled everything except one match with unmatched sparams,

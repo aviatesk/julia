@@ -2301,7 +2301,7 @@ function isdefined_effects(𝕃::AbstractLattice, argtypes::Vector{Any})
             end
         end
     end
-    nothrow = isdefined_nothrow(𝕃, argtypes)
+    nothrow = isdefined_nothrow(𝕃, argtypes) ? ALWAYS_TRUE : ALWAYS_FALSE
     if hasintersect(widenconst(wobj), Module)
         inaccessiblememonly = ALWAYS_FALSE
     elseif is_mutation_free_argtype(wobj)
@@ -2329,8 +2329,8 @@ function getfield_effects(𝕃::AbstractLattice, arginfo::ArgInfo, @nospecialize
         consistent = ALWAYS_FALSE
     end
     bcheck = getfield_boundscheck(arginfo)
-    nothrow = getfield_nothrow(𝕃, arginfo, bcheck)
-    if !nothrow
+    nothrow = getfield_nothrow(𝕃, arginfo, bcheck) ? ALWAYS_TRUE : ALWAYS_FALSE
+    if nothrow !== ALWAYS_TRUE
         if !(bcheck === :on || bcheck === :boundscheck)
             # If we cannot independently prove inboundsness, taint consistency.
             # The inbounds-ness assertion requires dynamic reachability, while
@@ -2354,12 +2354,11 @@ function getfield_effects(𝕃::AbstractLattice, arginfo::ArgInfo, @nospecialize
 end
 
 function getglobal_effects(argtypes::Vector{Any}, @nospecialize(rt))
-    consistent = inaccessiblememonly = ALWAYS_FALSE
-    nothrow = false
+    inaccessiblememonly = nothrow = consistent = ALWAYS_FALSE
     if length(argtypes) ≥ 2
         M, s = argtypes[1], argtypes[2]
         if getglobal_nothrow(M, s)
-            nothrow = true
+            nothrow = ALWAYS_TRUE
             # typeasserts below are already checked in `getglobal_nothrow`
             Mval, sval = (M::Const).val::Module, (s::Const).val::Symbol
             if isconst(Mval, sval)
@@ -2410,7 +2409,8 @@ function builtin_effects(𝕃::AbstractLattice, @nospecialize(f::Builtin), argin
         else
             effect_free = ALWAYS_FALSE
         end
-        nothrow = (isempty(argtypes) || !isvarargtype(argtypes[end])) && builtin_nothrow(𝕃, f, argtypes, rt)
+        nothrow = (isempty(argtypes) || !isvarargtype(argtypes[end])) && builtin_nothrow(𝕃, f, argtypes, rt) ?
+            ALWAYS_TRUE : ALWAYS_FALSE
         if contains_is(_INACCESSIBLEMEM_BUILTINS, f)
             inaccessiblememonly = ALWAYS_TRUE
         elseif contains_is(_ARGMEM_BUILTINS, f)
@@ -2598,7 +2598,8 @@ function intrinsic_effects(f::IntrinsicFunction, argtypes::Vector{Any})
         consistent = ALWAYS_TRUE
     end
     effect_free = !(f === Intrinsics.pointerset) ? ALWAYS_TRUE : ALWAYS_FALSE
-    nothrow = (isempty(argtypes) || !isvarargtype(argtypes[end])) && intrinsic_nothrow(f, argtypes)
+    nothrow = (isempty(argtypes) || !isvarargtype(argtypes[end])) && intrinsic_nothrow(f, argtypes) ?
+        ALWAYS_TRUE : ALWAYS_FALSE
     if f === arraylen
         inaccessiblememonly = INACCESSIBLEMEM_OR_ARGMEMONLY
     else
@@ -2896,7 +2897,7 @@ end
 function array_resize_effects()
     return Effects(EFFECTS_TOTAL;
         effect_free = EFFECT_FREE_IF_INACCESSIBLEMEMONLY,
-        nothrow = false,
+        nothrow = ALWAYS_FALSE,
         inaccessiblememonly = INACCESSIBLEMEM_OR_ARGMEMONLY)
 end
 
@@ -2914,7 +2915,7 @@ function alloc_array_ndims(name::Symbol)
 end
 
 function alloc_array_effects(@specialize(abstract_eval), args::Vector{Any}, ndims::Int)
-    nothrow = alloc_array_nothrow(abstract_eval, args, ndims)
+    nothrow = alloc_array_nothrow(abstract_eval, args, ndims) ? ALWAYS_TRUE : ALWAYS_FALSE
     return Effects(EFFECTS_TOTAL; consistent=CONSISTENT_IF_NOTRETURNED, nothrow)
 end
 
@@ -2933,7 +2934,7 @@ function alloc_array_nothrow(@specialize(abstract_eval), args::Vector{Any}, ndim
 end
 
 function new_array_effects(@specialize(abstract_eval), args::Vector{Any})
-    nothrow = new_array_nothrow(abstract_eval, args)
+    nothrow = new_array_nothrow(abstract_eval, args) ? ALWAYS_TRUE : ALWAYS_FALSE
     return Effects(EFFECTS_TOTAL; consistent=CONSISTENT_IF_NOTRETURNED, nothrow)
 end
 

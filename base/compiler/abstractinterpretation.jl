@@ -153,7 +153,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
     elseif isa(matches, MethodMatches) ? (!matches.fullmatch || any_ambig(matches)) :
             (!all(matches.fullmatches) || any_ambig(matches))
         # Account for the fact that we may encounter a MethodError with a non-covered or ambiguous signature.
-        all_effects = Effects(all_effects; nothrow=false)
+        all_effects = Effects(all_effects; nothrow=ALWAYS_FALSE)
     end
 
     rettype = from_interprocedural!(interp, rettype, sv, arginfo, conditionals)
@@ -1158,6 +1158,7 @@ function semi_concrete_eval_call(interp::AbstractInterpreter,
                 # that are newly resovled by irinterp
                 # state = InliningState(interp)
                 # ir = ssa_inlining_pass!(irsv.ir, state, propagate_inbounds(irsv))
+                nothrow = nothrow ? ALWAYS_TRUE : ALWAYS_FALSE
                 new_effects = Effects(result.effects; nothrow)
                 return ConstCallResults(rt, SemiConcreteResult(mi, ir, new_effects), new_effects, mi)
             end
@@ -1854,7 +1855,7 @@ function abstract_call_unionall(interp::AbstractInterpreter, argtypes::Vector{An
         a2 = argtypes[2]
         a3 = argtypes[3]
         ⊑ᵢ = ⊑(typeinf_lattice(interp))
-        nothrow = a2 ⊑ᵢ TypeVar && (a3 ⊑ᵢ Type || a3 ⊑ᵢ TypeVar)
+        nothrow = a2 ⊑ᵢ TypeVar && (a3 ⊑ᵢ Type || a3 ⊑ᵢ TypeVar) ? ALWAYS_TRUE : ALWAYS_FALSE
         if isa(a3, Const)
             body = a3.val
         elseif isType(a3)
@@ -2077,7 +2078,7 @@ function abstract_call_opaque_closure(interp::AbstractInterpreter,
         (aty, rty) = (unwrap_unionall(ftt)::DataType).parameters
         rty = rewrap_unionall(rty isa TypeVar ? rty.lb : rty, ftt)
         if !(rt ⊑ₚ rty && tuple_tfunc(𝕃ₚ, arginfo.argtypes[2:end]) ⊑ₚ rewrap_unionall(aty, ftt))
-            effects = Effects(effects; nothrow=false)
+            effects = Effects(effects; nothrow=ALWAYS_FALSE)
         end
     end
     rt = from_interprocedural!(interp, rt, sv, arginfo, match.spec_types)
@@ -2186,11 +2187,13 @@ function abstract_eval_value_expr(interp::AbstractInterpreter, e::Expr, vtypes::
     head = e.head
     if head === :static_parameter
         n = e.args[1]::Int
-        nothrow = false
+        nothrow = ALWAYS_FALSE
         if 1 <= n <= length(sv.sptypes)
             sp = sv.sptypes[n]
             rt = sp.typ
-            nothrow = !sp.undef
+            if !sp.undef
+                nothrow = ALWAYS_TRUE
+            end
         end
         merge_effects!(interp, sv, Effects(EFFECTS_TOTAL; nothrow))
         return rt
@@ -2232,11 +2235,11 @@ function abstract_eval_special_value(interp::AbstractInterpreter, @nospecialize(
         if vtypes !== nothing
             vtyp = vtypes[slot_id(e)]
             if vtyp.undef
-                merge_effects!(interp, sv, Effects(EFFECTS_TOTAL; nothrow=false))
+                merge_effects!(interp, sv, Effects(EFFECTS_TOTAL; nothrow=ALWAYS_FALSE))
             end
             return vtyp.typ
         end
-        merge_effects!(interp, sv, Effects(EFFECTS_TOTAL; nothrow=false))
+        merge_effects!(interp, sv, Effects(EFFECTS_TOTAL; nothrow=ALWAYS_FALSE))
         return Any
     elseif isa(e, Argument)
         if vtypes !== nothing
@@ -2317,8 +2320,7 @@ function abstract_eval_statement_expr(interp::AbstractInterpreter, e::Expr, vtyp
     elseif ehead === :new
         t, isexact = instanceof_tfunc(abstract_eval_value(interp, e.args[1], vtypes, sv))
         ut = unwrap_unionall(t)
-        consistent = ALWAYS_FALSE
-        nothrow = false
+        nothrow = consistent = ALWAYS_FALSE
         if isa(ut, DataType) && !isabstracttype(ut)
             ismutable = ismutabletype(ut)
             fcount = datatype_fieldcount(ut)
@@ -2336,7 +2338,7 @@ function abstract_eval_statement_expr(interp::AbstractInterpreter, e::Expr, vtyp
                 consistent = ALWAYS_TRUE
             end
             if isconcretedispatch(t)
-                nothrow = true
+                nothrow = ALWAYS_TRUE
                 @assert fcount !== nothing && fcount ≥ nargs "malformed :new expression" # syntactically enforced by the front-end
                 ats = Vector{Any}(undef, nargs)
                 local anyrefine = false
@@ -2344,7 +2346,9 @@ function abstract_eval_statement_expr(interp::AbstractInterpreter, e::Expr, vtyp
                 for i = 1:nargs
                     at = widenslotwrapper(abstract_eval_value(interp, e.args[i+1], vtypes, sv))
                     ft = fieldtype(t, i)
-                    nothrow && (nothrow = at ⊑ᵢ ft)
+                    if nothrow === ALWAYS_TRUE
+                        nothrow = at ⊑ᵢ ft ? ALWAYS_TRUE : ALWAYS_FALSE
+                    end
                     at = tmeet(𝕃ᵢ, at, ft)
                     at === Bottom && @goto always_throw
                     if ismutable && !isconst(t, i)
@@ -2380,7 +2384,7 @@ function abstract_eval_statement_expr(interp::AbstractInterpreter, e::Expr, vtyp
         effects = Effects(EFFECTS_TOTAL; consistent, nothrow)
     elseif ehead === :splatnew
         t, isexact = instanceof_tfunc(abstract_eval_value(interp, e.args[1], vtypes, sv))
-        nothrow = false # TODO: More precision
+        nothrow = ALWAYS_FALSE # TODO: More precision
         if length(e.args) == 2 && isconcretedispatch(t) && !ismutabletype(t)
             at = abstract_eval_value(interp, e.args[2], vtypes, sv)
             n = fieldcount(t)
@@ -2388,13 +2392,13 @@ function abstract_eval_statement_expr(interp::AbstractInterpreter, e::Expr, vtyp
                 (let t = t, at = at
                     all(i::Int->getfield(at.val::Tuple, i) isa fieldtype(t, i), 1:n)
                 end))
-                nothrow = isexact
+                nothrow = isexact ? ALWAYS_TRUE : ALWAYS_FALSE
                 t = Const(ccall(:jl_new_structt, Any, (Any, Any), t, at.val))
             elseif (isa(at, PartialStruct) && at ⊑ᵢ Tuple && n > 0 && n == length(at.fields::Vector{Any}) && !isvarargtype(at.fields[end]) &&
                     (let t = t, at = at, ⊑ᵢ = ⊑ᵢ
                         all(i::Int->(at.fields::Vector{Any})[i] ⊑ᵢ fieldtype(t, i), 1:n)
                     end))
-                nothrow = isexact
+                nothrow = isexact ? ALWAYS_TRUE : ALWAYS_FALSE
                 t = PartialStruct(t, at.fields::Vector{Any})
             end
         else
@@ -2530,7 +2534,7 @@ function abstract_eval_foreigncall(interp::AbstractInterpreter, e::Expr, vtypes:
         effects = Effects(
             override.consistent          ? ALWAYS_TRUE : effects.consistent,
             override.effect_free         ? ALWAYS_TRUE : effects.effect_free,
-            override.nothrow             ? true        : effects.nothrow,
+            override.nothrow             ? ALWAYS_TRUE : effects.nothrow,
             override.terminates_globally ? true        : effects.terminates,
             override.notaskstate         ? true        : effects.notaskstate,
             override.inaccessiblememonly ? ALWAYS_TRUE : effects.inaccessiblememonly,
@@ -2606,15 +2610,14 @@ abstract_eval_global(M::Module, s::Symbol) = abstract_eval_globalref(GlobalRef(M
 function abstract_eval_globalref(interp::AbstractInterpreter, g::GlobalRef, sv::AbsIntState)
     rt = abstract_eval_globalref(g)
     consistent = inaccessiblememonly = ALWAYS_FALSE
-    nothrow = false
+    nothrow = ALWAYS_FALSE
     if isa(rt, Const)
-        consistent = ALWAYS_TRUE
-        nothrow = true
+        nothrow = consistent = ALWAYS_TRUE
         if is_mutation_free_argtype(rt)
             inaccessiblememonly = ALWAYS_TRUE
         end
     elseif isdefined_globalref(g)
-        nothrow = true
+        nothrow = ALWAYS_TRUE
     elseif InferenceParams(interp).assume_bindings_static
         consistent = inaccessiblememonly = ALWAYS_TRUE
         rt = Union{}
@@ -2624,9 +2627,10 @@ function abstract_eval_globalref(interp::AbstractInterpreter, g::GlobalRef, sv::
 end
 
 function handle_global_assignment!(interp::AbstractInterpreter, frame::InferenceState, lhs::GlobalRef, @nospecialize(newty))
-    effect_free = ALWAYS_FALSE
-    nothrow = global_assignment_nothrow(lhs.mod, lhs.name, newty)
-    inaccessiblememonly = ALWAYS_FALSE
+    inaccessiblememonly = nothrow = effect_free = ALWAYS_FALSE
+    if global_assignment_nothrow(lhs.mod, lhs.name, newty)
+        nothrow = ALWAYS_TRUE
+    end
     merge_effects!(interp, frame, Effects(EFFECTS_TOTAL; effect_free, nothrow, inaccessiblememonly))
     return nothing
 end
