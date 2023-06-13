@@ -1979,6 +1979,9 @@ function abstract_call_known(interp::AbstractInterpreter, @nospecialize(f),
         end
         rt = abstract_call_builtin(interp, f, arginfo, sv, max_methods)
         effects = builtin_effects(𝕃ᵢ, f, arginfo, rt)
+        if is_nothrow_if_inbounds(effects) && !iszero(get_curr_ssaflag(sv) & IR_FLAG_INBOUNDS)
+            effects = Effects(effects; nothrow=ALWAYS_TRUE)
+        end
         if f === getfield && (fargs !== nothing && isexpr(fargs[end], :boundscheck)) && !is_nothrow(effects) && isa(sv, InferenceState)
             # As a special case, we delayed tainting `noinbounds` for getfield calls in case we can prove
             # in-boundedness indepedently. Here we need to put that back in other cases.
@@ -2568,6 +2571,9 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
         return abstract_eval_special_value(interp, e, vtypes, sv)
     end
     (; rt, effects) = abstract_eval_statement_expr(interp, e, vtypes, sv)
+    if is_nothrow_if_inbounds(effects) && !iszero(get_curr_ssaflag(sv) & IR_FLAG_INBOUNDS)
+        effects = Effects(effects; nothrow=ALWAYS_TRUE)
+    end
     if !effects.noinbounds
         if !propagate_inbounds(sv)
             # The callee read our inbounds flag, but unless we propagate inbounds,

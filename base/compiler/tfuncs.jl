@@ -948,31 +948,31 @@ end
 
 function getfield_nothrow(𝕃::AbstractLattice, arginfo::ArgInfo, boundscheck::Symbol=getfield_boundscheck(arginfo))
     (;argtypes) = arginfo
-    boundscheck === :unknown && return false
+    boundscheck === :unknown && return ALWAYS_FALSE
     ordering = Const(:not_atomic)
     if length(argtypes) == 4
-        isvarargtype(argtypes[4]) && return false
+        isvarargtype(argtypes[4]) && return ALWAYS_FALSE
         if widenconst(argtypes[4]) !== Bool
             ordering = argtypes[4]
         end
     elseif length(argtypes) == 5
         ordering = argtypes[5]
     elseif length(argtypes) != 3
-        return false
+        return ALWAYS_FALSE
     end
-    isa(ordering, Const) || return false
+    isa(ordering, Const) || return ALWAYS_FALSE
     ordering = ordering.val
-    isa(ordering, Symbol) || return false
+    isa(ordering, Symbol) || return ALWAYS_FALSE
     if ordering !== :not_atomic # TODO: this is assuming not atomic
-        return false
+        return ALWAYS_FALSE
     end
     return getfield_nothrow(𝕃, argtypes[2], argtypes[3], !(boundscheck === :off))
 end
 @nospecs function getfield_nothrow(𝕃::AbstractLattice, s00, name, boundscheck::Bool)
-    # If we don't have boundscheck off and don't know the field, don't even bother
-    if boundscheck
-        isa(name, Const) || return false
-    end
+    # # If we don't have boundscheck off and don't know the field, don't even bother
+    # if boundscheck
+    #     isa(name, Const) || return ALWAYS_FALSE
+    # end
 
     ⊑ = Core.Compiler.:⊑(𝕃)
 
@@ -986,50 +986,62 @@ end
         if isa(name, Const)
             nval = name.val
             if !isa(nval, Symbol)
-                isa(sv, Module) && return false
-                isa(nval, Int) || return false
+                isa(sv, Module) && return ALWAYS_FALSE
+                isa(nval, Int) || return ALWAYS_FALSE
             end
-            return isdefined(sv, nval)
+            return isdefined(sv, nval) ? ALWAYS_TRUE : ALWAYS_FALSE
         end
-        boundscheck && return false
+        boundscheck && return ALWAYS_FALSE
         # If bounds checking is disabled and all fields are assigned,
         # we may assume that we don't throw
-        isa(sv, Module) && return false
-        name ⊑ Int || name ⊑ Symbol || return false
+        isa(sv, Module) && return ALWAYS_FALSE
+        name ⊑ Int || name ⊑ Symbol || return ALWAYS_FALSE
         for i = 1:fieldcount(typeof(sv))
-            isdefined(sv, i) || return false
+            isdefined(sv, i) || return ALWAYS_FALSE
         end
-        return true
+        return ALWAYS_TRUE
     end
 
     s0 = widenconst(s00)
     s = unwrap_unionall(s0)
     if isa(s, Union)
-        return getfield_nothrow(𝕃, rewrap_unionall(s.a, s00), name, boundscheck) &&
-               getfield_nothrow(𝕃, rewrap_unionall(s.b, s00), name, boundscheck)
+        return merge_effectbits(
+            getfield_nothrow(𝕃, rewrap_unionall(s.a, s00), name, boundscheck),
+            getfield_nothrow(𝕃, rewrap_unionall(s.b, s00), name, boundscheck))
     elseif isType(s) && isTypeDataType(s.parameters[1])
         s = s0 = DataType
     end
-    if isa(s, DataType)
-        # Can't say anything about abstract types
-        isabstracttype(s) && return false
-        # If all fields are always initialized, and bounds check is disabled,
-        # we can assume we don't throw
-        if !boundscheck && s.name.n_uninitialized == 0
-            name ⊑ Int || name ⊑ Symbol || return false
-            return true
-        end
-        # Else we need to know what the field is
-        isa(name, Const) || return false
-        field = try_compute_fieldidx(s, name.val)
-        field === nothing && return false
-        isfieldatomic(s, field) && return false # TODO: currently we're only testing for ordering === :not_atomic
-        field <= datatype_min_ninitialized(s) && return true
-        # `try_compute_fieldidx` already check for field index bound.
-        !isvatuple(s) && isbitstype(fieldtype(s0, field)) && return true
+    isa(s, DataType) || return ALWAYS_FALSE
+    # Can't say anything about abstract types
+    isabstracttype(s) && return ALWAYS_FALSE
+    # If all fields are always initialized, and bounds check is disabled,
+    # we can assume we don't throw
+    if !boundscheck && s.name.n_uninitialized == 0
+        name ⊑ Int || name ⊑ Symbol || return ALWAYS_FALSE
+        return ALWAYS_TRUE
     end
-
-    return false
+    if isa(name, Const)
+        field = try_compute_fieldidx(s, name.val)
+        if field !== nothing
+            isfieldatomic(s, field) && return ALWAYS_FALSE # TODO: currently we're only testing for ordering === :not_atomic
+            field <= datatype_min_ninitialized(s) && return ALWAYS_TRUE
+            # a `isbitstype` field is initialized with undefined value and thus won't throw
+            isvatuple(s) && return ALWAYS_FALSE
+            isbitstype(fieldtype(s0, field)) && return ALWAYS_TRUE
+            return ALWAYS_FALSE
+        end
+    end
+    # the precise field is unknown, but we can still perform exhaustive check on all fields
+    nf = nfields_tfunc(𝕃, s0)
+    nf isa Const || return ALWAYS_FALSE
+    nfv = nf.val
+    nfv isa Int || return ALWAYS_FALSE
+    any(isfieldatomic(s, i) for i = 1:nfv) && return ALWAYS_FALSE
+    isvatuple(s) && return ALWAYS_FALSE
+    for i = 1:s.name.n_uninitialized
+        isbitstype(fieldtype(s0, nfv-i+1)) || return ALWAYS_FALSE
+    end
+    return NOTHROW_IF_INBOUNDS
 end
 
 @nospecs function getfield_tfunc(𝕃::AbstractLattice, s00, name, boundscheck_or_order)
@@ -2043,24 +2055,23 @@ end
 
 function array_builtin_common_nothrow(argtypes::Vector{Any}, isarrayref::Bool)
     first_idx_idx = isarrayref ? 3 : 4
-    length(argtypes) ≥ first_idx_idx || return false
+    length(argtypes) ≥ first_idx_idx || return ALWAYS_FALSE
     boundscheck = argtypes[1]
     arytype = argtypes[2]
-    array_builtin_common_typecheck(boundscheck, arytype, argtypes, first_idx_idx) || return false
+    array_builtin_common_typecheck(boundscheck, arytype, argtypes, first_idx_idx) || return ALWAYS_FALSE
     if isarrayref
         # If we could potentially throw undef ref errors, bail out now.
         arytype = widenconst(arytype)
-        array_type_undefable(arytype) && return false
+        array_type_undefable(arytype) && return ALWAYS_FALSE
     end
     # If we have @inbounds (first argument is false), we're allowed to assume
     # we don't throw bounds errors.
     if isa(boundscheck, Const)
-        boundscheck.val::Bool || return true
+        boundscheck.val::Bool || return ALWAYS_TRUE
     end
     # Else we can't really say anything here
-    # TODO: In the future we may be able to track the shapes of arrays though
-    # inference.
-    return false
+    # TODO: In the future we may be able to track the shapes of arrays though inference.
+    return NOTHROW_IF_INBOUNDS
 end
 
 @nospecs function array_builtin_common_typecheck(boundscheck, arytype,
@@ -2087,89 +2098,82 @@ end
 @nospecs function _builtin_nothrow(𝕃::AbstractLattice, f, argtypes::Vector{Any}, rt)
     ⊑ = Core.Compiler.:⊑(𝕃)
     if f === arrayset
-        array_builtin_common_nothrow(argtypes, #=isarrayref=#false) || return false
+        res = array_builtin_common_nothrow(argtypes, #=isarrayref=#false)
         # Additionally check element type compatibility
-        return arrayset_typecheck(argtypes[2], argtypes[3])
+        res === ALWAYS_FALSE && return ALWAYS_FALSE
+        arrayset_typecheck(argtypes[2], argtypes[3]) || return ALWAYS_FALSE
+        return res
     elseif f === arrayref || f === const_arrayref
         return array_builtin_common_nothrow(argtypes, #=isarrayref=#true)
     elseif f === Core._expr
-        length(argtypes) >= 1 || return false
-        return argtypes[1] ⊑ Symbol
+        return (length(argtypes) ≥ 1 && argtypes[1] ⊑ Symbol) ? ALWAYS_TRUE : ALWAYS_FALSE
     end
 
     # These builtins are not-vararg, so if we have varars, here, we can't guarantee
     # the correct number of arguments.
     na = length(argtypes)
-    (na ≠ 0 && isvarargtype(argtypes[end])) && return false
+    (na ≠ 0 && isvarargtype(argtypes[end])) && return ALWAYS_FALSE
     if f === arraysize
-        na == 2 || return false
-        return arraysize_nothrow(argtypes[1], argtypes[2])
+        return (na == 2 && arraysize_nothrow(argtypes[1], argtypes[2])) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === Core._typevar
-        na == 3 || return false
-        return typevar_nothrow(𝕃, argtypes[1], argtypes[2], argtypes[3])
+        return (na == 3 && typevar_nothrow(𝕃, argtypes[1], argtypes[2], argtypes[3])) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === invoke
-        return false
+        return ALWAYS_FALSE
     elseif f === getfield
         return getfield_nothrow(𝕃, ArgInfo(nothing, Any[Const(f), argtypes...]))
     elseif f === setfield!
+        # TODO
         if na == 3
-            return setfield!_nothrow(𝕃, argtypes[1], argtypes[2], argtypes[3])
+            return setfield!_nothrow(𝕃, argtypes[1], argtypes[2], argtypes[3]) ? ALWAYS_TRUE : ALWAYS_FALSE
         elseif na == 4
-            return setfield!_nothrow(𝕃, argtypes[1], argtypes[2], argtypes[3], argtypes[4])
+            return setfield!_nothrow(𝕃, argtypes[1], argtypes[2], argtypes[3], argtypes[4]) ? ALWAYS_TRUE : ALWAYS_FALSE
+        else
+            return ALWAYS_FALSE
         end
-        return false
     elseif f === fieldtype
-        na == 2 || return false
-        return fieldtype_nothrow(𝕃, argtypes[1], argtypes[2])
+        return (na == 2 && fieldtype_nothrow(𝕃, argtypes[1], argtypes[2])) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === apply_type
-        return apply_type_nothrow(𝕃, argtypes, rt)
+        return apply_type_nothrow(𝕃, argtypes, rt) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === isa
-        na == 2 || return false
-        return isa_nothrow(𝕃, nothing, argtypes[2])
+        return (na == 2 && isa_nothrow(𝕃, nothing, argtypes[2])) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === (<:)
-        na == 2 || return false
-        return subtype_nothrow(𝕃, argtypes[1], argtypes[2])
+        return (na == 2 && subtype_nothrow(𝕃, argtypes[1], argtypes[2])) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === UnionAll
-        return na == 2 && (argtypes[1] ⊑ TypeVar && argtypes[2] ⊑ Type)
+        return (na == 2 && (argtypes[1] ⊑ TypeVar && argtypes[2] ⊑ Type)) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === isdefined
-        return isdefined_nothrow(𝕃, argtypes)
+        return isdefined_nothrow(𝕃, argtypes) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === Core.sizeof
-        na == 1 || return false
-        return sizeof_nothrow(argtypes[1])
+        return (na == 1 && sizeof_nothrow(argtypes[1])) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === Core.ifelse
-        na == 3 || return false
-        return ifelse_nothrow(𝕃, argtypes[1], nothing, nothing)
+        return (na == 3 && ifelse_nothrow(𝕃, argtypes[1], nothing, nothing)) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === typeassert
-        na == 2 || return false
-        return typeassert_nothrow(𝕃, argtypes[1], argtypes[2])
+        return (na == 2 && typeassert_nothrow(𝕃, argtypes[1], argtypes[2])) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === getglobal
         if na == 2
-            return getglobal_nothrow(argtypes[1], argtypes[2])
+            return getglobal_nothrow(argtypes[1], argtypes[2]) ? ALWAYS_TRUE : ALWAYS_FALSE
         elseif na == 3
-            return getglobal_nothrow(argtypes[1], argtypes[2], argtypes[3])
+            return getglobal_nothrow(argtypes[1], argtypes[2], argtypes[3]) ? ALWAYS_TRUE : ALWAYS_FALSE
         end
-        return false
+        return ALWAYS_FALSE
     elseif f === setglobal!
         if na == 3
-            return setglobal!_nothrow(argtypes[1], argtypes[2], argtypes[3])
+            return setglobal!_nothrow(argtypes[1], argtypes[2], argtypes[3]) ? ALWAYS_TRUE : ALWAYS_FALSE
         elseif na == 4
-            return setglobal!_nothrow(argtypes[1], argtypes[2], argtypes[3], argtypes[4])
+            return setglobal!_nothrow(argtypes[1], argtypes[2], argtypes[3], argtypes[4]) ? ALWAYS_TRUE : ALWAYS_FALSE
+        else
+            return ALWAYS_FALSE
         end
-        return false
     elseif f === Core.get_binding_type
-        na == 2 || return false
-        return get_binding_type_nothrow(𝕃, argtypes[1], argtypes[2])
+        return (na == 2 && get_binding_type_nothrow(𝕃, argtypes[1], argtypes[2])) ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === donotdelete
-        return true
+        return ALWAYS_TRUE
     elseif f === Core.finalizer
-        2 <= na <= 4 || return false
         # Core.finalizer does no error checking - that's done in Base.finalizer
-        return true
+        return 2 <= na <= 4 ? ALWAYS_TRUE : ALWAYS_FALSE
     elseif f === Core.compilerbarrier
-        na == 2 || return false
-        return compilerbarrier_nothrow(argtypes[1], nothing)
+        return (na == 2 && compilerbarrier_nothrow(argtypes[1], nothing)) ? ALWAYS_TRUE : ALWAYS_FALSE
     end
-    return false
+    return ALWAYS_FALSE
 end
 
 # known to be always effect-free (in particular nothrow)
@@ -2329,7 +2333,7 @@ function getfield_effects(𝕃::AbstractLattice, arginfo::ArgInfo, @nospecialize
         consistent = ALWAYS_FALSE
     end
     bcheck = getfield_boundscheck(arginfo)
-    nothrow = getfield_nothrow(𝕃, arginfo, bcheck) ? ALWAYS_TRUE : ALWAYS_FALSE
+    nothrow = getfield_nothrow(𝕃, arginfo, bcheck)
     if nothrow !== ALWAYS_TRUE
         if !(bcheck === :on || bcheck === :boundscheck)
             # If we cannot independently prove inboundsness, taint consistency.
@@ -2409,8 +2413,11 @@ function builtin_effects(𝕃::AbstractLattice, @nospecialize(f::Builtin), argin
         else
             effect_free = ALWAYS_FALSE
         end
-        nothrow = (isempty(argtypes) || !isvarargtype(argtypes[end])) && builtin_nothrow(𝕃, f, argtypes, rt) ?
-            ALWAYS_TRUE : ALWAYS_FALSE
+        if (isempty(argtypes) || !isvarargtype(argtypes[end]))
+            nothrow = builtin_nothrow(𝕃, f, argtypes, rt)
+        else
+            nothrow = ALWAYS_FALSE
+        end
         if contains_is(_INACCESSIBLEMEM_BUILTINS, f)
             inaccessiblememonly = ALWAYS_TRUE
         elseif contains_is(_ARGMEM_BUILTINS, f)
@@ -2423,10 +2430,15 @@ function builtin_effects(𝕃::AbstractLattice, @nospecialize(f::Builtin), argin
 end
 
 function builtin_nothrow(𝕃::AbstractLattice, @nospecialize(f), argtypes::Vector{Any}, @nospecialize(rt))
-    rt === Bottom && return false
-    contains_is(_PURE_BUILTINS, f) && return true
+    rt === Bottom && return ALWAYS_FALSE
+    contains_is(_PURE_BUILTINS, f) && return ALWAYS_TRUE
     return _builtin_nothrow(𝕃, f, argtypes, rt)
 end
+
+@nospecs _builtin_nothrow(::Type{Bool}, 𝕃::AbstractLattice, f, argtypes::Vector{Any}, rt) =
+    _builtin_nothrow(𝕃, f, argtypes, rt) === ALWAYS_TRUE
+@nospecs builtin_nothrow(::Type{Bool}, 𝕃::AbstractLattice, f, argtypes::Vector{Any}, rt) =
+    builtin_nothrow(𝕃, f, argtypes, rt) === ALWAYS_TRUE
 
 function builtin_tfunction(interp::AbstractInterpreter, @nospecialize(f), argtypes::Vector{Any},
                            sv::Union{AbsIntState, Nothing})

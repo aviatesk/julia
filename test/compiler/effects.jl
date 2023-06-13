@@ -394,7 +394,8 @@ end |> !Core.Compiler.is_foldable
     entry_to_be_invalidated('a')
 end
 
-@test !Core.Compiler.builtin_nothrow(Core.Compiler.fallback_lattice, Core.get_binding_type, Any[Rational{Int}, Core.Const(:foo)], Any)
+@test !Core.Compiler.builtin_nothrow(Bool, Core.Compiler.fallback_lattice,
+    Core.get_binding_type, Any[Rational{Int}, Core.Const(:foo)], Any)
 
 # Nothrow for assignment to globals
 global glob_assign_int::Int = 0
@@ -680,6 +681,33 @@ end
 end
 @test !Core.Compiler.is_removable_if_unused(Base.infer_effects(unremovable_if_unused3!))
 
+# assume `:nothrow`-ness of `getfield` when applied `@inbounds`
+mygetproperty(x, f) = getfield(x, f)
+for FT = Any[Symbol,Int], func = Any[getfield, mygetproperty]
+    @testset let FT = FT, func = func
+        @test Base.infer_effects((Some{Any}, FT)) do x, f
+            func(x, f)
+        end |> Core.Compiler.is_nothrow_if_inbounds
+        @test Base.infer_effects((Some{Any}, FT)) do x, f
+            @inbounds func(x, f)
+        end |> Core.Compiler.is_nothrow
+    end
+end
+
+struct GetfieldExhaustiveCheck{T}
+    a
+    b
+    c::T
+    GetfieldExhaustiveCheck(a, b) = new{Any}(a, b)
+    GetfieldExhaustiveCheck(a, b, c::T) where T = new{T}(a, b, c)
+end
+@test Base.infer_effects((GetfieldExhaustiveCheck{Int}, Symbol)) do x, f
+    getfield(x, f)
+end |> Core.Compiler.is_nothrow_if_inbounds
+@test Base.infer_effects((GetfieldExhaustiveCheck{Any}, Symbol)) do x, f
+    getfield(x, f) # the `c` field may be uninitialized
+end |> !Core.Compiler.is_nothrow_if_inbounds
+
 # array ops
 # =========
 
@@ -762,33 +790,48 @@ end
 
 for tt = Any[(Bool,Vector{Any},Int),
              (Bool,Matrix{Any},Int,Int)]
-    @testset let effects = Base.infer_effects(Base.arrayref, tt)
+    @testset let tt = tt,
+                 effects = Base.infer_effects(Base.arrayref, tt)
         @test Core.Compiler.is_consistent_if_inaccessiblememonly(effects)
         @test Core.Compiler.is_effect_free(effects)
         @test !Core.Compiler.is_nothrow(effects)
         @test Core.Compiler.is_terminates(effects)
     end
 end
+@test Core.Compiler.is_nothrow_if_inbounds(Base.infer_effects(Base.arrayref, (Bool,Vector{Int},Int)))
+@test !Core.Compiler.is_nothrow_if_inbounds(Base.infer_effects(Base.arrayref, (Bool,Vector{Any},Int))) # may raise `UndefRefError` also
+
+# assume :nothrow-ness of `arrayref` in `@inbounds` region
+@test @eval Base.infer_effects((Vector{Int},Int,)) do a, i
+    @inbounds Base.arrayref($(Expr(:boundscheck)), a, i)
+end |> Core.Compiler.is_nothrow
+@test Base.infer_effects((Vector{Int},Int)) do a, i
+    @inbounds a[i]
+end |> Core.Compiler.is_nothrow
 
 # arrayset
 # --------
 
 for tt = Any[(Bool,Vector{Any},Any,Int),
              (Bool,Matrix{Any},Any,Int,Int)]
-    @testset let effects = Base.infer_effects(Base.arrayset, tt)
+    @testset let tt = tt,
+                 effects = Base.infer_effects(Base.arrayset, tt)
         @test Core.Compiler.is_consistent_if_inaccessiblememonly(effects)
         @test Core.Compiler.is_effect_free_if_inaccessiblememonly(effects)
         @test !Core.Compiler.is_nothrow(effects)
         @test Core.Compiler.is_terminates(effects)
     end
 end
-# nothrow for arrayset
+@test Core.Compiler.is_nothrow_if_inbounds(Base.infer_effects(Base.arrayset, (Bool,Vector{Int},Int,Int)))
+@test Core.Compiler.is_nothrow_if_inbounds(Base.infer_effects(Base.arrayset, (Bool,Vector{Any},Any,Int)))
+
+# assume :nothrow-ness of `arrayset` in `@inbounds` region
+@test @eval Base.infer_effects((Vector{Int},Int,Int)) do a, v, i
+    @inbounds Base.arrayset($(Expr(:boundscheck)), a, v, i)
+end |> Core.Compiler.is_nothrow
 @test Base.infer_effects((Vector{Int},Int,Int)) do a, v, i
-    Base.arrayset(true, a, v, i)
-end |> !Core.Compiler.is_nothrow
-@test Base.infer_effects((Vector{Int},Int,Int)) do a, v, i
-    a[i] = v # may throw
-end |> !Core.Compiler.is_nothrow
+    @inbounds a[i] = v
+end |> Core.Compiler.is_nothrow
 # when bounds checking is turned off, it should be safe
 @test Base.infer_effects((Vector{Int},Int,Int)) do a, v, i
     Base.arrayset(false, a, v, i)

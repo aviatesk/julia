@@ -1231,7 +1231,7 @@ function check_effect_free!(ir::IRCode, idx::Int, @nospecialize(stmt), @nospecia
     return check_effect_free!(ir, idx, stmt, rt, optimizer_lattice(state.interp))
 end
 function check_effect_free!(ir::IRCode, idx::Int, @nospecialize(stmt), @nospecialize(rt), 𝕃ₒ::AbstractLattice)
-    (consistent, effect_free_and_nothrow, nothrow) = stmt_effect_flags(𝕃ₒ, stmt, rt, ir)
+    (consistent, effect_free_and_nothrow, nothrow) = stmt_effect_flags(𝕃ₒ, stmt, rt, ir, ir.stmts[idx][:flag])
     if consistent
         ir.stmts[idx][:flag] |= IR_FLAG_CONSISTENT
     end
@@ -1724,7 +1724,7 @@ function early_inline_special_case(
         elseif contains_is(_PURE_BUILTINS, f)
             return SomeCase(quoted(val))
         elseif contains_is(_EFFECT_FREE_BUILTINS, f)
-            if _builtin_nothrow(optimizer_lattice(state.interp), f, argtypes[2:end], type)
+            if _builtin_nothrow(Bool, optimizer_lattice(state.interp), f, argtypes[2:end], type)
                 return SomeCase(quoted(val))
             end
         elseif f === Core.get_binding_type
@@ -1779,7 +1779,8 @@ function late_inline_special_case!(
     elseif length(argtypes) == 3 && istopfunction(f, :(>:))
         # special-case inliner for issupertype
         # that works, even though inference generally avoids inferring the `>:` Method
-        if isa(type, Const) && _builtin_nothrow(optimizer_lattice(state.interp), <:, Any[argtypes[3], argtypes[2]], type)
+        if isa(type, Const) && _builtin_nothrow(Bool,
+            optimizer_lattice(state.interp), <:, Any[argtypes[3], argtypes[2]], type)
             return SomeCase(quoted(type.val))
         end
         subtype_call = Expr(:call, GlobalRef(Core, :(<:)), stmt.args[3], stmt.args[2])
