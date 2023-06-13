@@ -469,17 +469,6 @@ end
     return getfield(obj, :value)
 end |> Core.Compiler.is_consistent
 
-# getfield is nothrow when bounds checking is turned off
-@test Base.infer_effects((Tuple{Int,Int},Int)) do t, i
-    getfield(t, i, false)
-end |> Core.Compiler.is_nothrow
-@test Base.infer_effects((Tuple{Int,Int},Symbol)) do t, i
-    getfield(t, i, false)
-end |> Core.Compiler.is_nothrow
-@test Base.infer_effects((Tuple{Int,Int},String)) do t, i
-    getfield(t, i, false) # invalid name type
-end |> !Core.Compiler.is_nothrow
-
 @test Core.Compiler.is_consistent(Base.infer_effects(setindex!, (Base.RefValue{Int}, Int)))
 
 # :inaccessiblememonly effect
@@ -820,13 +809,6 @@ end
 end |> Core.Compiler.is_nothrow
 @test Base.infer_effects((Vector{Int},Int,Int)) do a, v, i
     @inbounds a[i] = v
-end |> Core.Compiler.is_nothrow
-# when bounds checking is turned off, it should be safe
-@test Base.infer_effects((Vector{Int},Int,Int)) do a, v, i
-    Base.arrayset(false, a, v, i)
-end |> Core.Compiler.is_nothrow
-@test Base.infer_effects((Vector{Number},Number,Int)) do a, v, i
-    Base.arrayset(false, a, v, i)
 end |> Core.Compiler.is_nothrow
 
 # arraysize

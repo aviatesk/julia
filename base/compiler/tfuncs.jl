@@ -966,14 +966,9 @@ function getfield_nothrow(𝕃::AbstractLattice, arginfo::ArgInfo, boundscheck::
     if ordering !== :not_atomic # TODO: this is assuming not atomic
         return ALWAYS_FALSE
     end
-    return getfield_nothrow(𝕃, argtypes[2], argtypes[3], !(boundscheck === :off))
+    return getfield_nothrow(𝕃, argtypes[2], argtypes[3])
 end
-@nospecs function getfield_nothrow(𝕃::AbstractLattice, s00, name, boundscheck::Bool)
-    # # If we don't have boundscheck off and don't know the field, don't even bother
-    # if boundscheck
-    #     isa(name, Const) || return ALWAYS_FALSE
-    # end
-
+@nospecs function getfield_nothrow(𝕃::AbstractLattice, s00, name)
     ⊑ = Core.Compiler.:⊑(𝕃)
 
     # If we have s00 being a const, we can potentially refine our type-based analysis above
@@ -985,41 +980,34 @@ end
         end
         if isa(name, Const)
             nval = name.val
-            if !isa(nval, Symbol)
+            if isa(nval, Int)
                 isa(sv, Module) && return ALWAYS_FALSE
-                isa(nval, Int) || return ALWAYS_FALSE
+            elseif !isa(nval, Symbol)
+                return ALWAYS_FALSE
             end
             return isdefined(sv, nval) ? ALWAYS_TRUE : ALWAYS_FALSE
         end
-        boundscheck && return ALWAYS_FALSE
-        # If bounds checking is disabled and all fields are assigned,
-        # we may assume that we don't throw
+        # if all fields are assigned, we may assume that we don't throw if `@inbounds` applied
         isa(sv, Module) && return ALWAYS_FALSE
         name ⊑ Int || name ⊑ Symbol || return ALWAYS_FALSE
         for i = 1:fieldcount(typeof(sv))
             isdefined(sv, i) || return ALWAYS_FALSE
         end
-        return ALWAYS_TRUE
+        return NOTHROW_IF_INBOUNDS
     end
 
     s0 = widenconst(s00)
     s = unwrap_unionall(s0)
     if isa(s, Union)
         return merge_effectbits(
-            getfield_nothrow(𝕃, rewrap_unionall(s.a, s00), name, boundscheck),
-            getfield_nothrow(𝕃, rewrap_unionall(s.b, s00), name, boundscheck))
+            getfield_nothrow(𝕃, rewrap_unionall(s.a, s00), name),
+            getfield_nothrow(𝕃, rewrap_unionall(s.b, s00), name))
     elseif isType(s) && isTypeDataType(s.parameters[1])
         s = s0 = DataType
     end
     isa(s, DataType) || return ALWAYS_FALSE
     # Can't say anything about abstract types
     isabstracttype(s) && return ALWAYS_FALSE
-    # If all fields are always initialized, and bounds check is disabled,
-    # we can assume we don't throw
-    if !boundscheck && s.name.n_uninitialized == 0
-        name ⊑ Int || name ⊑ Symbol || return ALWAYS_FALSE
-        return ALWAYS_TRUE
-    end
     if isa(name, Const)
         field = try_compute_fieldidx(s, name.val)
         if field !== nothing
@@ -2064,12 +2052,6 @@ function array_builtin_common_nothrow(argtypes::Vector{Any}, isarrayref::Bool)
         arytype = widenconst(arytype)
         array_type_undefable(arytype) && return ALWAYS_FALSE
     end
-    # If we have @inbounds (first argument is false), we're allowed to assume
-    # we don't throw bounds errors.
-    if isa(boundscheck, Const)
-        boundscheck.val::Bool || return ALWAYS_TRUE
-    end
-    # Else we can't really say anything here
     # TODO: In the future we may be able to track the shapes of arrays though inference.
     return NOTHROW_IF_INBOUNDS
 end
