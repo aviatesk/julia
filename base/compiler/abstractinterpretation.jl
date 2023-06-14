@@ -1986,9 +1986,8 @@ function abstract_call_known(interp::AbstractInterpreter, @nospecialize(f),
             # As a special case, we delayed tainting `noinbounds` for getfield calls in case we can prove
             # in-boundedness indepedently. Here we need to put that back in other cases.
             # N.B.: This isn't about the effects of the call itself, but a delayed contribution of the :boundscheck
-            # statement, so we need to merge this directly into sv, rather than modifying thte effects.
-            merge_effects!(interp, sv, Effects(EFFECTS_TOTAL; noinbounds=false,
-                consistent = (get_curr_ssaflag(sv) & IR_FLAG_INBOUNDS) != 0 ? ALWAYS_FALSE : ALWAYS_TRUE))
+            # statement, so we need to merge this directly into sv, rather than modifying the effects.
+            merge_effects!(interp, sv, Effects(EFFECTS_TOTAL; noinbounds=false))
         end
         return CallMeta(rt, effects, NoCallInfo())
     elseif isa(f, Core.OpaqueClosure)
@@ -2203,21 +2202,18 @@ function abstract_eval_value_expr(interp::AbstractInterpreter, e::Expr, vtypes::
     elseif head === :boundscheck
         if isa(sv, InferenceState)
             stmt = sv.src.code[sv.currpc]
-            if isexpr(stmt, :call)
-                f = abstract_eval_value(interp, stmt.args[1], vtypes, sv)
+            rhs = isexpr(stmt, :(=)) ? stmt.args[2] : stmt
+            if isexpr(rhs, :call)
+                f = abstract_eval_value(interp, rhs.args[1], vtypes, sv)
                 if f isa Const && f.val === getfield
                     # boundscheck of `getfield` call is analyzed by tfunc potentially without
                     # tainting :inbounds or :consistent when it's known to be nothrow
                     @goto delay_effects_analysis
                 end
             end
-            # If there is no particular `@inbounds` for this function, then we only taint `:noinbounds`,
-            # which will subsequently taint `:consistent`-cy if this function is called from another
-            # function that uses `@inbounds`. However, if this `:boundscheck` is itself within an
-            # `@inbounds` region, its value depends on `--check-bounds`, so we need to taint
-            # `:consistent`-cy here also.
-            merge_effects!(interp, sv, Effects(EFFECTS_TOTAL; noinbounds=false,
-                consistent = (get_curr_ssaflag(sv) & IR_FLAG_INBOUNDS) != 0 ? ALWAYS_FALSE : ALWAYS_TRUE))
+            # Taint `:noinbounds`, which will subsequently prohibit concrete-evaluation for
+            # this function if it is called from a context that uses `@inbounds`.
+            merge_effects!(interp, sv, Effects(EFFECTS_TOTAL; noinbounds=false))
         end
         @label delay_effects_analysis
         rt = Bool
@@ -2579,9 +2575,6 @@ function abstract_eval_statement(interp::AbstractInterpreter, @nospecialize(e), 
             # The callee read our inbounds flag, but unless we propagate inbounds,
             # we ourselves don't read our parent's inbounds.
             effects = Effects(effects; noinbounds=true)
-        end
-        if (get_curr_ssaflag(sv) & IR_FLAG_INBOUNDS) != 0
-            effects = Effects(effects; consistent=ALWAYS_FALSE)
         end
     end
     merge_effects!(interp, sv, effects)

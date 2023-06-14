@@ -337,17 +337,6 @@ invoke44763(x) = @invoke increase_x44763!(x)
 end |> only === Int
 @test x44763 == 0
 
-# `@inbounds`/`@boundscheck` expression should taint :consistent-cy correctly
-# https://github.com/JuliaLang/julia/issues/48099
-function A1_inbounds()
-    r = 0
-    @inbounds begin
-        @boundscheck r += 1
-    end
-    return r
-end
-@test !Core.Compiler.is_consistent(Base.infer_effects(A1_inbounds))
-
 # Test that purity doesn't try to accidentally run unreachable code due to
 # boundscheck elimination
 function f_boundscheck_elim(n)
@@ -926,21 +915,6 @@ end |> Core.Compiler.is_foldable
 # Flow-sensitive consistenct for _typevar
 @test Base.infer_effects() do
     return WrapperOneField == (WrapperOneField{T} where T)
-end |> Core.Compiler.is_foldable_nothrow
-
-# Test that dead `@inbounds` does not taint consistency
-# https://github.com/JuliaLang/julia/issues/48243
-@test Base.infer_effects(Tuple{Int64}) do i
-    false && @inbounds (1,2,3)[i]
-    return 1
-end |> Core.Compiler.is_foldable_nothrow
-
-@test Base.infer_effects(Tuple{Int64}) do i
-    @inbounds (1,2,3)[i]
-end |> !Core.Compiler.is_consistent
-
-@test Base.infer_effects(Tuple{Tuple{Int64}}) do x
-    @inbounds x[1]
 end |> Core.Compiler.is_foldable_nothrow
 
 # Test that :new of non-concrete, but otherwise known type
