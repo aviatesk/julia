@@ -170,7 +170,7 @@ function get_nospecializeinfer_sig(method::Method, @nospecialize(atype), sparams
         mt, atype, sparams, method, #=int return_if_compileable=#0)
 end
 
-isa_compileable_sig(@nospecialize(atype), sparams::SimpleVector, method::Method) =
+isa_compileable_sig(method::Method, @nospecialize(atype), sparams::SimpleVector) =
     !iszero(ccall(:jl_isa_compileable_sig, Int32, (Any, Any, Any), atype, sparams, method))
 
 # eliminate UnionAll vars that might be degenerate due to having identical bounds,
@@ -215,8 +215,12 @@ end
     if isa(atype, UnionAll)
         atype, sparams = normalize_typevars(method, atype, sparams)
     end
-    if is_nospecializeinfer(method)
-        atype = get_nospecializeinfer_sig(method, atype, sparams)
+    # if is_nospecializeinfer(method)
+    #     atype = get_nospecializeinfer_sig(method, atype, sparams)
+    # end
+    compileablesig = get_compileable_sig(method, atype, sparams)
+    if compileablesig !== nothing
+        atype = compileablesig
     end
     if preexisting
         # check cached specializations

@@ -342,11 +342,11 @@ function CodeInstance(interp::AbstractInterpreter, result::InferenceResult,
         relocatability)
 end
 
-function maybe_compress_codeinfo(interp::AbstractInterpreter, linfo::MethodInstance, ci::CodeInfo)
-    def = linfo.def
+function maybe_compress_codeinfo(interp::AbstractInterpreter, mi::MethodInstance, ci::CodeInfo)
+    def = mi.def
     isa(def, Method) || return ci # don't compress toplevel code
     if may_discard_trees(interp)
-        cache_the_tree = ci.inferred && (is_inlineable(ci) || isa_compileable_sig(linfo.specTypes, linfo.sparam_vals, def))
+        cache_the_tree = ci.inferred && (is_inlineable(ci) || isa_compileable_sig(def, mi.specTypes, mi.sparam_vals))
     else
         cache_the_tree = true
     end

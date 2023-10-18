@@ -946,7 +946,9 @@ function analyze_method!(match::MethodMatch, argtypes::Vector{Any},
     @nospecialize(info::CallInfo), flag::UInt32, state::InliningState;
     allow_typevars::Bool, invokesig::Union{Nothing,Vector{Any}}=nothing)
     method = match.method
-    spec_types = match.spec_types
+    # spec_types = match.spec_types
+    mi = specialize_method(match)
+    spec_types = mi.specTypes
 
     # Check that we have the correct number of arguments
     na = Int(method.nargs)
@@ -972,7 +974,6 @@ function analyze_method!(match::MethodMatch, argtypes::Vector{Any},
 
     # Get the specialization for this method signature
     # (later we will decide what to do with it)
-    mi = specialize_method(match)
     return resolve_todo(mi, match, argtypes, info, flag, state; invokesig)
 end
 
@@ -1465,7 +1466,8 @@ function handle_match!(cases::Vector{InliningCase},
     match::MethodMatch, argtypes::Vector{Any}, @nospecialize(info::CallInfo), flag::UInt32,
     state::InliningState;
     allow_abstract::Bool, allow_typevars::Bool)
-    spec_types = match.spec_types
+    # spec_types = match.spec_types
+    spec_types = specialize_method(match).specTypes
     allow_abstract || isdispatchtuple(spec_types) || return false
     # We may see duplicated dispatch signatures here when a signature gets widened
     # during abstract interpretation: for the purpose of inlining, we can just skip
