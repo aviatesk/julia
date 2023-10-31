@@ -1176,44 +1176,54 @@ function semi_concrete_eval_call(interp::AbstractInterpreter,
     return nothing
 end
 
+const_prop_result(inf_result::InferenceResult) =
+    ConstCallResults(inf_result.result, ConstPropResult(inf_result), inf_result.ipo_effects, inf_result.linfo)
+
 function const_prop_call(interp::AbstractInterpreter,
     mi::MethodInstance, result::MethodCallResult, arginfo::ArgInfo, sv::AbsIntState,
     concrete_eval_result::Union{Nothing,ConstCallResults}=nothing)
     inf_cache = get_inference_cache(interp)
     𝕃ᵢ = typeinf_lattice(interp)
     inf_result = cache_lookup(𝕃ᵢ, mi, arginfo.argtypes, inf_cache)
-    if inf_result === nothing
-        # fresh constant prop'
-        argtypes = has_conditional(𝕃ᵢ, sv) ? ConditionalArgtypes(arginfo, sv) : SimpleArgtypes(arginfo.argtypes)
-        inf_result = InferenceResult(mi, argtypes, typeinf_lattice(interp))
-        if !any(inf_result.overridden_by_const)
-            add_remark!(interp, sv, "[constprop] Could not handle constant info in matching_cache_argtypes")
-            return nothing
-        end
-        frame = InferenceState(inf_result, #=cache_mode=#:local, interp)
-        if frame === nothing
-            add_remark!(interp, sv, "[constprop] Could not retrieve the source")
-            return nothing # this is probably a bad generated function (unsound), but just ignore it
-        end
-        frame.parent = sv
-        if !typeinf(interp, frame)
-            add_remark!(interp, sv, "[constprop] Fresh constant inference hit a cycle")
-            return nothing
-        end
-        @assert inf_result.result !== nothing
-        if concrete_eval_result !== nothing
-            # override return type and effects with concrete evaluation result if available
-            inf_result.result = concrete_eval_result.rt
-            inf_result.ipo_effects = concrete_eval_result.effects
-        end
-    else
+    cache_mode = CACHE_MODE_LOCAL
+    if inf_result isa InferenceResult
         # found the cache for this constant prop'
         if inf_result.result === nothing
             add_remark!(interp, sv, "[constprop] Found cached constant inference in a cycle")
             return nothing
         end
+        if inf_result.src === nothing && is_stmt_inline(get_curr_ssaflag(sv))
+            cache_mode = CACHE_MODE_VOLATILE
+        else
+            return const_prop_result(inf_result)
+        end
+    elseif is_stmt_inline(get_curr_ssaflag(sv))
+        cache_mode = CACHE_MODE_VOLATILE
     end
-    return ConstCallResults(inf_result.result, ConstPropResult(inf_result), inf_result.ipo_effects, mi)
+    # fresh constant prop'
+    argtypes = has_conditional(𝕃ᵢ, sv) ? ConditionalArgtypes(arginfo, sv) : SimpleArgtypes(arginfo.argtypes)
+    inf_result = InferenceResult(mi, argtypes, typeinf_lattice(interp))
+    if !any(inf_result.overridden_by_const)
+        add_remark!(interp, sv, "[constprop] Could not handle constant info in matching_cache_argtypes")
+        return nothing
+    end
+    frame = InferenceState(inf_result, cache_mode, interp)
+    if frame === nothing
+        add_remark!(interp, sv, "[constprop] Could not retrieve the source")
+        return nothing # this is probably a bad generated function (unsound), but just ignore it
+    end
+    frame.parent = sv
+    if !typeinf(interp, frame)
+        add_remark!(interp, sv, "[constprop] Fresh constant inference hit a cycle")
+        return nothing
+    end
+    @assert inf_result.result !== nothing
+    if concrete_eval_result !== nothing
+        # override return type and effects with concrete evaluation result if available
+        inf_result.result = concrete_eval_result.rt
+        inf_result.ipo_effects = concrete_eval_result.effects
+    end
+    return const_prop_result(inf_result)
 end
 
 # TODO implement MustAlias forwarding

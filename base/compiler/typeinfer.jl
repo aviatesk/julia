@@ -227,8 +227,16 @@ function finish!(interp::AbstractInterpreter, caller::InferenceState)
         store_backedges(result, caller.stmt_edges[1])
     end
     opt = result.src
-    if opt isa OptimizationState && result.must_be_codeinf
-        result.src = opt = ir_to_codeinf!(opt)
+    if opt isa OptimizationState
+        if !iszero(caller.cache_mode & CACHE_MODE_GLOBAL)
+            result.src = opt = ir_to_codeinf!(opt)
+        elseif !iszero(caller.cache_mode & CACHE_MODE_VOLATILE)
+            result.src = opt = cfg_simplify!(opt.ir::IRCode)
+        elseif !iszero(caller.cache_mode & CACHE_MODE_LOCAL) && is_inlineable(opt.src)
+            result.src = opt = cfg_simplify!(opt.ir::IRCode)
+        else
+            result.src = opt = nothing
+        end
     end
     if opt isa CodeInfo
         opt.min_world = first(valid_worlds)
@@ -236,8 +244,8 @@ function finish!(interp::AbstractInterpreter, caller::InferenceState)
         caller.src = opt
     else
         # In this case caller.src is invalid for clients (such as typeinf_ext) to use
-        # but that is what !must_be_codeinf permits
-        # This is hopefully unreachable when must_be_codeinf is true
+        # but that is what cache_mode != :global permits
+        # This is hopefully unreachable when cache_mode != :global
     end
     return nothing
 end
