@@ -265,26 +265,26 @@ struct EffectsOverride
 end
 
 function encode_effects_override(eo::EffectsOverride)
-    e = 0x00
-    eo.consistent          && (e |= (0x01 << 0))
-    eo.effect_free         && (e |= (0x01 << 1))
-    eo.nothrow             && (e |= (0x01 << 2))
-    eo.terminates_globally && (e |= (0x01 << 3))
-    eo.terminates_locally  && (e |= (0x01 << 4))
-    eo.notaskstate         && (e |= (0x01 << 5))
-    eo.inaccessiblememonly && (e |= (0x01 << 6))
-    eo.noub                && (e |= (0x01 << 7))
+    e = 0x0000
+    eo.consistent          && (e |= (0x0001 << 0))
+    eo.effect_free         && (e |= (0x0001 << 1))
+    eo.nothrow             && (e |= (0x0001 << 2))
+    eo.terminates_globally && (e |= (0x0001 << 3))
+    eo.terminates_locally  && (e |= (0x0001 << 4))
+    eo.notaskstate         && (e |= (0x0001 << 5))
+    eo.inaccessiblememonly && (e |= (0x0001 << 6))
+    eo.noub                && (e |= (0x0001 << 7))
     return e
 end
 
-function decode_effects_override(e::UInt8)
+function decode_effects_override(e::UInt16)
     return EffectsOverride(
-        (e & (0x01 << 0)) != 0x00,
-        (e & (0x01 << 1)) != 0x00,
-        (e & (0x01 << 2)) != 0x00,
-        (e & (0x01 << 3)) != 0x00,
-        (e & (0x01 << 4)) != 0x00,
-        (e & (0x01 << 5)) != 0x00,
-        (e & (0x01 << 6)) != 0x00,
-        (e & (0x01 << 7)) != 0x00)
+        (e & (0x0001 << 0)) != 0,
+        (e & (0x0001 << 1)) != 0,
+        (e & (0x0001 << 2)) != 0,
+        (e & (0x0001 << 3)) != 0,
+        (e & (0x0001 << 4)) != 0,
+        (e & (0x0001 << 5)) != 0,
+        (e & (0x0001 << 6)) != 0,
+        (e & (0x0001 << 7)) != 0)
 end

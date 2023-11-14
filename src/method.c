@@ -192,7 +192,7 @@ static jl_value_t *resolve_globals(jl_value_t *expr, jl_module_t *module, jl_sve
                         jl_error("In ccall calling convention, expected two argument tuple or symbol.");
                     }
                     JL_TYPECHK(ccall method definition, symbol, jl_get_nth_field(cc, 0));
-                    JL_TYPECHK(ccall method definition, uint8, jl_get_nth_field(cc, 1));
+                    JL_TYPECHK(ccall method definition, uint16, jl_get_nth_field(cc, 1));
                 }
                 jl_exprargset(e, 0, resolve_globals(jl_exprarg(e, 0), module, sparam_vals, binding_effects, 1));
                 i++;
