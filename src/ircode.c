@@ -813,7 +813,7 @@ JL_DLLEXPORT jl_string_t *jl_compress_ir(jl_method_t *m, jl_code_info_t *code)
     jl_code_info_flags_t flags = code_info_flags(code->inferred, code->propagate_inbounds, code->has_fcall,
                                                  code->nospecializeinfer, code->inlining, code->constprop);
     write_uint8(s.s, flags.packed);
-    write_uint8(s.s, code->purity.bits);
+    write_uint16(s.s, code->purity.bits);
     write_uint16(s.s, code->inlining_cost);
 
     size_t nslots = jl_array_nrows(code->slotflags);
@@ -911,7 +911,7 @@ JL_DLLEXPORT jl_code_info_t *jl_uncompress_ir(jl_method_t *m, jl_code_instance_t
     code->propagate_inbounds = flags.bits.propagate_inbounds;
     code->has_fcall = flags.bits.has_fcall;
     code->nospecializeinfer = flags.bits.nospecializeinfer;
-    code->purity.bits = read_uint8(s.s);
+    code->purity.bits = read_uint16(s.s);
     code->inlining_cost = read_uint16(s.s);
 
     size_t nslots = read_int32(&src);

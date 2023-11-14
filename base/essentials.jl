@@ -214,7 +214,8 @@ macro _total_meta()
         #=:terminates_locally=#false,
         #=:notaskstate=#true,
         #=:inaccessiblememonly=#true,
-        #=:noub=#true))
+        #=:noub=#true,
+        #=:noub_if_noinbounds=#false))
 end
 # can be used in place of `@assume_effects :foldable` (supposed to be used for bootstrapping)
 macro _foldable_meta()
@@ -226,19 +227,8 @@ macro _foldable_meta()
         #=:terminates_locally=#false,
         #=:notaskstate=#true,
         #=:inaccessiblememonly=#true,
-        #=:noub=#true))
-end
-# can be used in place of `@assume_effects :nothrow` (supposed to be used for bootstrapping)
-macro _nothrow_meta()
-    return _is_internal(__module__) && Expr(:meta, Expr(:purity,
-        #=:consistent=#false,
-        #=:effect_free=#false,
-        #=:nothrow=#true,
-        #=:terminates_globally=#false,
-        #=:terminates_locally=#false,
-        #=:notaskstate=#false,
-        #=:inaccessiblememonly=#false,
-        #=:noub=#false))
+        #=:noub=#true,
+        #=:noub_if_noinbounds=#false))
 end
 # can be used in place of `@assume_effects :terminates_locally` (supposed to be used for bootstrapping)
 macro _terminates_locally_meta()
@@ -250,7 +240,8 @@ macro _terminates_locally_meta()
         #=:terminates_locally=#true,
         #=:notaskstate=#false,
         #=:inaccessiblememonly=#false,
-        #=:noub=#false))
+        #=:noub=#false,
+        #=:noub_if_noinbounds=#false))
 end
 # can be used in place of `@assume_effects :terminates_globally` (supposed to be used for bootstrapping)
 macro _terminates_globally_meta()
@@ -262,7 +253,8 @@ macro _terminates_globally_meta()
         #=:terminates_locally=#true,
         #=:notaskstate=#false,
         #=:inaccessiblememonly=#false,
-        #=:noub=#false))
+        #=:noub=#false,
+        #=:noub_if_noinbounds=#false))
 end
 # can be used in place of `@assume_effects :effect_free :terminates_locally` (supposed to be used for bootstrapping)
 macro _effect_free_terminates_locally_meta()
@@ -274,7 +266,21 @@ macro _effect_free_terminates_locally_meta()
         #=:terminates_locally=#true,
         #=:notaskstate=#false,
         #=:inaccessiblememonly=#false,
-        #=:noub=#false))
+        #=:noub=#false,
+        #=:noub_if_noinbounds=#false))
+end
+# can be used in place of `@assume_effects :effect_free :terminates_locally` (supposed to be used for bootstrapping)
+macro _noub_if_noinbounds_meta()
+    return _is_internal(__module__) && Expr(:meta, Expr(:purity,
+        #=:consistent=#false,
+        #=:effect_free=#false,
+        #=:nothrow=#false,
+        #=:terminates_globally=#false,
+        #=:terminates_locally=#false,
+        #=:notaskstate=#false,
+        #=:inaccessiblememonly=#false,
+        #=:noub=#false,
+        #=:noub_if_noinbounds=#true))
 end
 
 # another version of inlining that propagates an inbounds context
@@ -787,11 +793,13 @@ end
 
 # linear indexing
 function getindex(A::Array, i::Int)
+    # @_noub_if_noinbounds_meta
     @boundscheck ult_int(bitcast(UInt, sub_int(i, 1)), bitcast(UInt, length(A))) || throw_boundserror(A, (i,))
     memoryrefget(memoryref(getfield(A, :ref), i, false), :not_atomic, false)
 end
 # simple Array{Any} operations needed for bootstrap
 function setindex!(A::Array{Any}, @nospecialize(x), i::Int)
+    # @_noub_if_noinbounds_meta
     @boundscheck ult_int(bitcast(UInt, sub_int(i, 1)), bitcast(UInt, length(A))) || throw_boundserror(A, (i,))
     memoryrefset!(memoryref(getfield(A, :ref), i, false), x, :not_atomic, false)
     return A
