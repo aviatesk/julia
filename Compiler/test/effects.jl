@@ -1384,3 +1384,17 @@ end |> Compiler.is_nothrow
 @test Base.infer_effects() do
     @ccall unsafecall()::Cvoid
 end == Compiler.EFFECTS_UNKNOWN
+
+# `getfield`/`isdefined` :consistent-cy for mutable struct with const fields
+mutable struct MutableButConst
+    const a::Int
+    const b
+    MutableButConst(a::Int) = new(a)
+    MutableButConst(a::Int, b) = new(a, b)
+end
+@test Base.infer_effects((MutableButConst,)) do obj
+    obj.a
+end |> Compiler.is_consistent
+@test Base.infer_effects((MutableButConst,)) do obj
+    isdefined(obj, :b)
+end |> Compiler.is_consistent

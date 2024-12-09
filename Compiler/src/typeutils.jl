@@ -362,7 +362,21 @@ function _is_immutable_type(@nospecialize ty)
     if isa(ty, Union)
         return _is_immutable_type(ty.a) && _is_immutable_type(ty.b)
     end
-    return !isabstracttype(ty) && !ismutabletype(ty)
+    ty isa DataType || return false
+    isabstracttype(ty) && return false
+    if !ismutabletype(ty)
+        return true
+    end
+    ty == Module && return false
+    nf = fieldcount_noerror(ty)
+    nf === nothing && return false
+    for i = 1:nf
+        if isconst(ty, i)
+            continue
+        end
+        return false
+    end
+    return true
 end
 
 """
@@ -375,6 +389,26 @@ This query is specifically written for analyzing the `:inaccessiblememonly` effe
 and is supposed to improve the analysis accuracy by not tainting the `:inaccessiblememonly`
 property when there is access to mutation-free global object.
 """
-is_mutation_free_argtype(@nospecialize(argtype)) =
-    is_mutation_free_type(widenconst(ignorelimited(argtype)))
+function is_mutation_free_argtype(@nospecialize(argtype))
+    if is_mutation_free_type(widenconst(ignorelimited(argtype)))
+        return true
+    end
+    argtype isa PartialStruct || return false
+    ty = argtype.typ
+    ty isa DataType || return false
+    isabstracttype(ty) && return false
+    ismut = ismutabletype(ty)
+    nf = fieldcount_noerror(ty)
+    nf === nothing && return false
+    for i = 1:nf
+        !ismut || isconst(ty, i) || return false
+        if is_mutation_free_type(fieldtype(ty, i))
+            continue
+        elseif length(argtype.fields) ≥ i && is_mutation_free_argtype(argtype.fields[i])
+            continue
+        end
+        return false
+    end
+    return true
+end
 is_mutation_free_type(@nospecialize ty) = ismutationfree(ty)
