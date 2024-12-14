@@ -569,7 +569,7 @@ function construct_ssa!(ci::CodeInfo, ir::IRCode, sv::OptimizationState,
     end
 
     # Record the correct exception handler for all critical sections
-    handler_info = compute_trycatch(code)
+    handler_info = compute_trycatch(SimpleHandler, code)
 
     phi_slots = Vector{Int}[Int[] for _ = 1:length(ir.cfg.blocks)]
     live_slots = Vector{Int}[Int[] for _ = 1:length(ir.cfg.blocks)]
@@ -801,8 +801,7 @@ function construct_ssa!(ci::CodeInfo, ir::IRCode, sv::OptimizationState,
                         has_pinode[id] = false
                         enter_idx = idx
                         while (handler = gethandler(handler_info, enter_idx)) !== nothing
-                            (; enter_idx) = handler
-                            leave_block = block_for_inst(cfg, (code[enter_idx]::EnterNode).catch_dest)
+                            leave_block = block_for_inst(cfg, (code[get_enter_idx(handler)]::EnterNode).catch_dest)
                             cidx = findfirst((; slot)::NewPhiCNode2->slot_id(slot)==id, new_phic_nodes[leave_block])
                             if cidx !== nothing
                                 node = thisdef ? UpsilonNode(thisval) : UpsilonNode()
